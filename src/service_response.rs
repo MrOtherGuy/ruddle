@@ -5,6 +5,7 @@ use crate::server_service::{HyperResult,ServerCommand,run_command,file_serve};
 use http_body_util::{BodyExt, Full, Empty};
 use crate::post_api::handle_post_api;
 
+
 static NOTFOUND: &[u8] = b"Not Found";
 static SERVICE_UNAVAILABLE: &[u8] = b"Service unavailable";
 static BAD_METHOD: &[u8] = b"Method not allowed";
@@ -13,11 +14,12 @@ pub enum ServiceResponse{
     NotFound,
     NotFoundEmpty,
     ServiceUnavailable,
-    PostAPIResponse(Request<hyper::body::Incoming>),
+    PostAPIResponse,
     CommandResponse(ServerCommand),
     Accepted,
-    FileService(Request<hyper::body::Incoming>),
-    BadMethod
+    FileService,
+    BadMethod,
+    BadRequest
 }
 
 impl IntoFuture for ServiceResponse{
@@ -28,21 +30,22 @@ impl IntoFuture for ServiceResponse{
             ServiceResponse::NotFound           => ready(ServiceResponse::not_found()),
             ServiceResponse::NotFoundEmpty      => ready(ServiceResponse::not_found_empty()),
             ServiceResponse::ServiceUnavailable => ready(ServiceResponse::service_unavailable()),
-            ServiceResponse::PostAPIResponse(_) => panic!("PostAPIResponse should not get called"),
+            ServiceResponse::PostAPIResponse => panic!("PostAPIResponse should not get called"),
             ServiceResponse::CommandResponse(_) => panic!("CommandResponse should not get called"),
             ServiceResponse::Accepted           => ready(ServiceResponse::accepted()),
-            ServiceResponse::FileService(_)     => panic!("FileService should not get called"),
-            ServiceResponse::BadMethod          => ready(ServiceResponse::bad_method())
+            ServiceResponse::FileService     => panic!("FileService should not get called"),
+            ServiceResponse::BadMethod          => ready(ServiceResponse::bad_method()),
+            ServiceResponse::BadRequest         => ready(ServiceResponse::bad_request())
         }
     }
 }
 
 impl ServiceResponse{
-    pub async fn resolve(self) -> HyperResult{
+    pub async fn resolve(self,request:Request<hyper::body::Incoming>) -> HyperResult{
         match self{
-            ServiceResponse::FileService(req) => file_serve(req).await,
-            ServiceResponse::CommandResponse(command) => run_command(&command).await,
-            ServiceResponse::PostAPIResponse(request) => handle_post_api(request).await,
+            ServiceResponse::FileService => file_serve(request).await,
+            ServiceResponse::CommandResponse(command) => run_command(&command,request.headers()).await,
+            ServiceResponse::PostAPIResponse => handle_post_api(request).await,
             _ => self.await
         }
     }

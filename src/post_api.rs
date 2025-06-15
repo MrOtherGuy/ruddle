@@ -7,6 +7,13 @@ use crate::models::{RemoteResult,JSONKind};
 use http_body_util::{BodyExt, Full};
 
 pub async fn handle_post_api( req: Request<hyper::body::Incoming>) -> HyperResult {
+    let config = match crate::SERVER_CONF.get(){
+        Some(c) => c,
+        None => return ServiceResponse::bad_request()
+    };
+    if !config.has_required_headers(req.headers()){
+        return ServiceResponse::bad_request()
+    }
     match (req.method(), req.uri().path()) {
         (&Method::POST, "/api/test") => test_post_api_response().await,
         (&Method::POST, "/api/post") => post_api_response(req).await,

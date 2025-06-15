@@ -5,7 +5,7 @@ use std::collections::{HashSet,HashMap};
 use std::path::Path;
 
 use crate::schemers::{schemaloader::{build_test,SchemaTree},validator::Validator};
-use crate::content_type::{HeaderValue,ContentType};
+use crate::content_type::{HeaderValue,ContentType,GetHeaderValueString};
 
 mod pathprovider;
 pub mod resource;
@@ -65,10 +65,25 @@ pub struct Settings<'a>{
     pub remote_resources: Option<HashMap<String,RemoteResource>>,
     pub header_map: HashMap<ContentType,HashMap<String,HeaderValue>>,
     schema_tree: Option<SchemaTree>,
-    pub allow_origins: HashSet<String>
+    pub allow_origins: HashSet<String>,
+    api_required_headers: Option<HashMap<String,String>>
 }
 
 impl Settings<'_>{
+    pub fn has_required_headers(&self, request_headers: &hyper::HeaderMap) -> bool{
+        if let Some(required) = &self.api_required_headers{
+            for (key,val) in required.iter(){
+                match request_headers.get_as_string(key){
+                    Some(hv) => if hv != val{
+                        return false
+                    },
+                    None => return false
+                }
+            }
+            return true
+        }
+        return true
+    }
     pub fn can_read_resource(&self, path: &str) -> bool{
         match &self.resources{
             None => true,
@@ -160,6 +175,24 @@ impl Settings<'_>{
             Some(p) => p,
             None => config.get::<u16>("port").unwrap_or(8080)
         };
+        let api_requirements : Option<HashMap<String,String>> = match config.get_table("api_required_headers"){
+            Ok(table) => match table.is_empty(){
+                true => None,
+                false => {
+                    let mut hmap : HashMap<String,String> = HashMap::new();
+                    for (key,val) in table.iter(){
+                        if let Ok(string_value) = val.clone().into_string(){
+                            hmap.insert(key.to_string(),string_value);
+                        }
+                    }
+                    Some(hmap)
+                }
+            },
+            Err(e) => {
+                println!("{}",e);
+                None
+            }
+        };
         let remotes: Option<HashMap<String,RemoteResource>> = match config.get_table("remote_resources"){
             Ok(s) => match s.is_empty(){
                 true => None,
@@ -236,7 +269,8 @@ impl Settings<'_>{
             user_agent: config.get::<String>("user_agent").unwrap_or("curl/7.54.1".to_string()),
             remote_resources: remotes,
             header_map: headers,
-            schema_tree: schema_source
+            schema_tree: schema_source,
+            api_required_headers: api_requirements
         }
     }
     pub fn from_file(filename: &Path,cli: &crate::Cli) -> ServerConfigResult<Settings<'static>>{

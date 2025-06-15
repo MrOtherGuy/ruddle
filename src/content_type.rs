@@ -74,7 +74,7 @@ impl std::fmt::Display for MIMEParseError {
     }
 }
 
-trait GetHeaderValueString{
+pub trait GetHeaderValueString{
     fn get_as_string(&self,header_name: &str) -> Option<&str>;
 }
 

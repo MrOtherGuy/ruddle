@@ -27,6 +27,9 @@ Server = "cssserver"
 Access-Control-Allow-Origin = "@Origin"
 Vary = "Origin"
 
+[api_required_headers]
+x-custom-header = "a123"
+
 [remote_resources]
 thing = { url = "http://example.com" }
 bad = { url = ":example.com" }

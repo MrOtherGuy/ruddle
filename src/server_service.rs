@@ -47,11 +47,14 @@ fn data_updated_handler(json_data: RemoteData) -> HyperResponse {
         .unwrap()
 }
 
-pub async fn run_command(command: &ServerCommand) -> HyperResult {
+pub async fn run_command(command: &ServerCommand, headers: &HeaderMap) -> HyperResult {
     let conf = match SERVER_CONF.get(){
         Some(c) => c,
         None => return ServiceResponse::not_found()
     };
+    if !conf.has_required_headers(headers){
+        return ServiceResponse::bad_request()
+    }
     match update_task(command.name(),conf).await{
         Ok(s) => Ok(data_updated_handler(s)),
         Err(_) => ServiceResponse::not_found()

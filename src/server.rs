@@ -217,7 +217,7 @@ pub async fn start_server(conf: &Settings,runtime_mode: RuntimeMode) -> TaskResu
                 let token_clone = token.clone();
                 let service = service_fn(move |req: Request<hyper::body::Incoming>| {
                     if token_clone.is_cancelled(){
-                        return ServiceResponse::ServiceUnavailable.resolve()
+                        return ServiceResponse::ServiceUnavailable.resolve(req)
                     }
                     let response = match req.method() {
                         &Method::GET => match req.uri().path().strip_prefix("/api/"){
@@ -225,19 +225,26 @@ pub async fn start_server(conf: &Settings,runtime_mode: RuntimeMode) -> TaskResu
                             Some(c) => ServiceResponse::CommandResponse(c),
                             None => ServiceResponse::NotFound,
                           },
-                          None => ServiceResponse::FileService(req)
+                          None => ServiceResponse::FileService
                         },
                         &Method::HEAD => match req.uri().path() {
                             "/api/shutdown" => {
+                                let conf = match crate::SERVER_CONF.get(){
+                                    Some(c) => c,
+                                    None => return ServiceResponse::BadRequest.resolve(req)
+                                };
+                                if !conf.has_required_headers(req.headers()){
+                                    return ServiceResponse::BadRequest.resolve(req)
+                                }
                                 token_clone.cancel();
                                 ServiceResponse::Accepted
                             },
                             _ => ServiceResponse::NotFoundEmpty
                         },
-                        &Method::POST => ServiceResponse::PostAPIResponse(req),
+                        &Method::POST => ServiceResponse::PostAPIResponse,
                         _ => ServiceResponse::BadMethod
                     };
-                    response.resolve()
+                    response.resolve(req)
                     
                 });
                 let conn = http1::Builder::new()
