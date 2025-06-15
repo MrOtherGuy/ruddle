@@ -1,0 +1,40 @@
+port = 50242
+server_root = "app"
+schema_source = "./schemas.json"
+allow_origins = ["http://localhost:9000"]
+user_agent = "curl/7.54.1"
+resources = [
+ "index.html",
+ "js/",
+ "css/",
+ "favicon.ico"
+]
+writable_resources = [
+    "css/thing.txt"
+]
+[headers.Global]
+Server = "Webserver"
+
+[headers."text/html"]
+Cross-Origin-Opener-Policy = "same-origin"
+Cross-Origin-Embedder-Policy = "credentialless"
+Cross-Origin-Resource-Policy = "cross-origin"
+
+[headers."text/css"]
+Server = "cssserver"
+
+[headers."application/json"]
+Access-Control-Allow-Origin = "@Origin"
+Vary = "Origin"
+
+[remote_resources]
+thing = { url = "http://example.com" }
+bad = { url = ":example.com" }
+
+[remote_resources.update]
+url = "http://127.0.0.1:9000/example_target.json"
+key_header = "x-custom-header"
+key_value = "FbUQdcS6ZFXnWKJc8hQu8K+YkKKhbEOI0aMxEGAjqS7EZC1o"
+file_targets = "./app/data/stored.json"
+model = "json"
+schema = "test"

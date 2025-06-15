@@ -2,5 +2,53 @@
 name = "rusty-server"
 version = "0.1.0"
 edition = "2024"
+default-run = "rusty-server"
+
+[[bin]]
+name = "webview-host"
+path = "src/webview-host.rs"
 
 [dependencies]
+hyper = { version = "1.6", features = ["http1","server"] }
+hyper-util = { version = "0.1.11", features = ["client","http1","http2","server-graceful"] }
+hyper-tls = "0.6.0"
+tokio = { version = "1.44.1", features = ["rt","net","fs","time","macros","rt-multi-thread"] }
+bytes = "1.2"
+http-body-util = "0.1"
+pin-project-lite = "0.2.4"
+config = { version = "0.15.11", features = ["toml"] }
+tokio-util = {version = "0.7.14", features = ["io"] }
+futures-util = "0.3.31"
+base64 = "0.22.1"
+clap = { version = "4.5.37", features = ["derive"] }
+serde = { version = "1.0.219", features = ["std"] }
+serde_json = { version = "1.0.140", features = ["std"] }
+webbrowser = { version = "1.0.4", features = ["hardened"] }
+regex-lite = { version = "0.1.6" }
+wry = { version = "0.51.2", features = ["os-webview"] }
+tao = { version = "0.33.0" }
+hide_console = { version = "0.2.1" }
+
+[dev-dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1.44.1", features = [
+    "fs",
+    "macros",
+    "net",
+    "io-std",
+    "io-util",
+    "rt",
+    "rt-multi-thread", # so examples can use #[tokio::main]
+    "sync",
+    "time",
+    "test-util",
+] }
+tokio-test = "0.4"
+
+
+[profile.release-lto]
+inherits = "release"
+lto = "thin"
+opt-level = "s"
+strip = "symbols"

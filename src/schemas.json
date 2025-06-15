@@ -1,0 +1,48 @@
+{
+  "refs": {
+  },
+  "schemas": {
+    "test": {
+      "type": "object",
+      "required": [
+        "ProductList"
+      ],
+      "properties": {
+        "ProductList": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "material_code": {
+                "type": "string",
+                "pattern": "^S{0,2}\\d+$"
+              },
+              "material_name": {
+                "type": "string"
+              },
+              "EAN": {
+                "type": "string",
+                "pattern": "^\\d{13,13}$"
+              },
+              "UPC": {
+                "type": "string",
+                "pattern": "^0\\d{11,11}$"
+              },
+              "country": {
+                "type": "string",
+                "pattern": "FINLAND|CHINA"
+              }
+            },
+            "required": [
+              "material_code",
+              "material_name",
+              "EAN",
+              "UPC",
+              "country"
+            ]
+          }
+        }
+      }
+    }
+  }
+}
