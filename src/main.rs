@@ -1,5 +1,4 @@
 #![deny(warnings)]
-//#![windows_subsystem = "windows"]
 use clap::{Parser,Subcommand,Args};
 use std::sync::OnceLock;
 use std::path::PathBuf;

@@ -1,8 +1,8 @@
 [package]
-name = "rusty-server"
+name = "ruddle"
 version = "0.1.0"
 edition = "2024"
-default-run = "rusty-server"
+default-run = "ruddle"
 
 [[bin]]
 name = "webview-host"
@@ -39,7 +39,7 @@ tokio = { version = "1.44.1", features = [
     "io-std",
     "io-util",
     "rt",
-    "rt-multi-thread", # so examples can use #[tokio::main]
+    "rt-multi-thread",
     "sync",
     "time",
     "test-util",
