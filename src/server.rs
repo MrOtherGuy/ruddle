@@ -149,7 +149,12 @@ pub async fn start_server(conf: &Settings,runtime_mode: RuntimeMode) -> TaskResu
                 Err(e) => panic!("failed to get current exe path: {e}")
             };
             exe_path.pop();
+            
+            #[cfg(target_os = "windows")]
             exe_path.push("webview-host.exe");
+            #[cfg(target_os = "linux")]
+            exe_path.push("webview-host");
+            
             println!("Path of this executable is: {}", exe_path.display());
             let address : String = match &conf.start_in{
                 Some(s) => format!("http://localhost:{}/{}",addr.port(),s),

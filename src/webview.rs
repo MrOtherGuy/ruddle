@@ -11,12 +11,21 @@ pub struct Webview{}
 
 impl Webview{
     pub fn initialize(address: &String, width: u16, height: u16, title: &String,imagedata: Vec<u8>) -> wry::Result<()>{
+        #[cfg(target_os = "windows")]
         use tao::platform::windows::EventLoopBuilderExtWindows;
+        #[cfg(target_os = "linux")]
+        use tao::platform::unix::{WindowExtUnix,EventLoopBuilderExtUnix};
+        #[cfg(target_os = "linux")]
+        use wry::WebViewBuilderExtUnix;
+        
+        
         let icon = match Icon::from_rgba(imagedata,100,100){
             Ok(i) => Some(i),
             Err(e) => {eprintln!("{e}");None}
         };
+        
         let event_loop = EventLoopBuilder::new().with_any_thread(false).build();
+        
         let window_size = LogicalSize::new(width,height);
         let window = WindowBuilder::new()
             .with_inner_size(window_size)
