@@ -9,7 +9,7 @@ impl std::fmt::Display for CrypTeaError {
         match self{
             CrypTeaError::InvalidUTF8 => write!(f, "Invalid bytest for utf8!"),
             CrypTeaError::DecodeError => write!(f, "Could not decode bytes"),
-            CrypTeaError::EncodeError => write!(f, "Encoding failed, data size invalid")
+            CrypTeaError::EncodeError => write!(f, "Cannot encode zero size str")
         }
     }
 }
@@ -19,7 +19,6 @@ pub enum CrypTeaError{
     DecodeError,
     EncodeError
 }
-
 struct LongData{
     data: Vec<u32>
 }
@@ -31,31 +30,13 @@ impl LongData{
         + ((bytes[idx * 4 + 2] as u32) << 16)
         + ((bytes[idx * 4 + 3] as u32) << 24)
     }
-    fn from_str(input: &str) -> CrypTeaResult<LongData> {
-        let min_size = (input.len() >> 2) + match input.len() % 4{ 0 => 0, _ => 1 } - 1;
-        let mut buf : Vec<u32> = Vec::with_capacity(min_size+1); // +1?
-        let bytes = input.as_bytes();
-        for n in 0..min_size{
-            buf.push(LongData::get_at(bytes,n));
-        }
-        match input.len() % 4 {
-            0 => buf.push(LongData::get_at(bytes,min_size)),
-            1 => buf.push(bytes[min_size * 4] as u32),
-            2 => buf.push(bytes[min_size * 4] as u32 + ((bytes[min_size * 4 + 1] as u32) << 8)),
-            3 => buf.push(bytes[min_size * 4] as u32 + ((bytes[min_size * 4 + 1] as u32) << 8) + ((bytes[min_size * 4 + 2] as u32) << 16)),
-            _ => panic!("This cannot happen")
-        }
-        Ok(LongData{
-            data: buf
-        })
-    }
     fn from_bytes(bytes: &[u8]) -> CrypTeaResult<LongData>{
         let min_size = (bytes.len() >> 2) + match bytes.len() % 4{ 0 => 0, _ => 1 } - 1;
         let mut buf : Vec<u32> = Vec::with_capacity(min_size+1);
         for n in 0..min_size{
             buf.push(LongData::get_at(bytes,n));
         }
-        match buf.len() % 4 {
+        match bytes.len() % 4 {
             0 => buf.push(LongData::get_at(bytes,min_size)),
             1 => buf.push(bytes[min_size * 4] as u32),
             2 => buf.push(bytes[min_size * 4] as u32 + ((bytes[min_size * 4 + 1] as u32) << 8)),
@@ -68,7 +49,7 @@ impl LongData{
     }
 }
 
-pub fn decode(input: &[u8;48],key: &str) -> Result<String,CrypTeaError>{
+pub fn decode(input: &Vec<u8>,key: &str) -> Result<String,CrypTeaError>{
 
     let bytes = match general_purpose::STANDARD.decode(input){
         Ok(decoded) => decoded,
@@ -80,7 +61,7 @@ pub fn decode(input: &[u8;48],key: &str) -> Result<String,CrypTeaError>{
 
     let mut data = LongData::from_bytes(bytes.as_slice())?;
 
-    let key = LongData::from_str(key)?;
+    let key = LongData::from_bytes(key.as_bytes())?;
     let data_len = data.data.len();
 
     let mut z : u64;
@@ -121,6 +102,8 @@ pub fn decode(input: &[u8;48],key: &str) -> Result<String,CrypTeaError>{
         out_vec.push((x >> 24).try_into().unwrap())
     });
     
+    while out_vec.pop_if(|x: &mut u8| *x == 0).is_some(){};
+    
     return match String::from_utf8(out_vec){
         Ok(s) => Ok(s),
         Err(e) => {
@@ -130,14 +113,13 @@ pub fn decode(input: &[u8;48],key: &str) -> Result<String,CrypTeaError>{
     }
 
 }
-pub fn encode_to_bytes(input: &str,key: &str) -> Result<[u8;36],CrypTeaError>{
-
-    if input.len() != 36{
+pub fn encode_to_bytes(input: &str,key: &str) -> Result<Vec<u8>,CrypTeaError>{
+    if input.len() == 0{
         return Err(CrypTeaError::EncodeError)
     }
-
     let mut data = LongData::from_bytes(input.as_bytes())?;
-    let key = LongData::from_str(key)?;
+    
+    let key = LongData::from_bytes(key.as_bytes())?;
     let data_len = data.data.len();
     let n = data_len - 1;
     let mut z : u64 = data.data[n].into();
@@ -146,7 +128,7 @@ pub fn encode_to_bytes(input: &str,key: &str) -> Result<[u8;36],CrypTeaError>{
     
     let delta : u64 = 0x9E3779B9;
     let mut q : u8 = 6 + (52 / data_len) as u8;
-
+    
     let mut sum : u64 = 0;
     
     while q > 0{
@@ -173,7 +155,11 @@ pub fn encode_to_bytes(input: &str,key: &str) -> Result<[u8;36],CrypTeaError>{
         data.data[n] = t;
         z = t.into();
     }
-    let mut out_vec : [u8;36] = [0; 36];
+    let mut out_vec : Vec<u8> = match input.len() % 4{
+        0 => vec![0; input.len()],
+        a => vec![0; input.len() + (4 - a)]
+    };
+
     for (idx, x) in data.data.iter().enumerate(){
         out_vec[idx * 4] = (x & 0xff).try_into().unwrap();
         out_vec[idx * 4 + 1] = ((x & 0xff00) >> 8).try_into().unwrap();

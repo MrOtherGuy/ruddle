@@ -5,7 +5,7 @@ use crate::support::cryptea;
 
 #[derive(Debug,Clone)]
 pub struct ResourceCredentials{
-    key: [u8;48],
+    key: Vec<u8>,
     pub header: String
 }
 
@@ -22,7 +22,7 @@ impl ResourceCredentials{
     pub fn try_parse(table: &config::Map<String, config::Value>) -> Result<Self,ServerConfigError>{
         let resource_key = match table.try_parse_string("key_value"){
             Ok(k) => {
-                let s : Option<[u8; 48]> = match k.as_bytes().try_into(){
+                let s : Option<Vec<u8>> = match k.as_bytes().try_into(){
                     Ok(slice) => Some(slice),
                     Err(_) => None
                 };

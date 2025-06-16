@@ -221,14 +221,36 @@ mod tests {
         let input = "Testing string with whatever content";
         let key = "3.14159265358979";
         let encoded = cryptea::encode_as_base64(input,key).unwrap();
-        println!("Length: {},{}",encoded.len(),encoded);
-        let slice : [u8;48] = match encoded.as_bytes().try_into(){
+        let slice : Vec<u8> = match encoded.as_bytes().try_into(){
             Ok(s) => s,
             Err(e) => {
                 println!("{}",e);
                 panic!("Got wrong slice")
             }
         };
+        let res = match cryptea::decode(&slice,key){
+            Ok(s) => s,
+            Err(e) => {
+                println!("{}",e);
+                panic!("Decode failed")
+            }
+        };
+        assert_eq!(input,&res);
+    }
+    #[test]
+    fn test_codec_long(){
+        use crate::support::cryptea;
+        let input = "Testing string with whatever content and other things toolsd";
+        let key = "3.14159265358979";
+        let encoded = cryptea::encode_as_base64(input,key).unwrap();
+        let slice : Vec<u8> = match encoded.as_bytes().try_into(){
+            Ok(s) => s,
+            Err(e) => {
+                println!("{}",e);
+                panic!("Got wrong slice")
+            }
+        };
+        
         let res = match cryptea::decode(&slice,key){
             Ok(s) => s,
             Err(e) => {
