@@ -4,9 +4,16 @@ use crate::settings::ServerConfigError;
 use crate::support::cryptea;
 
 #[derive(Debug,Clone)]
+pub enum CredentialsMode{
+    Plain,
+    Encoded
+}
+
+#[derive(Debug,Clone)]
 pub struct ResourceCredentials{
     key: Vec<u8>,
-    pub header: String
+    pub header: String,
+    pub mode: CredentialsMode
 }
 
 impl ResourceCredentials{
@@ -18,6 +25,9 @@ impl ResourceCredentials{
                 Err(ServerConfigError::DecodeError)
             }
         }
+    }
+    pub fn key(&self) -> &Vec<u8>{
+        &self.key
     }
     pub fn try_parse(table: &config::Map<String, config::Value>) -> Result<Self,ServerConfigError>{
         let resource_key = match table.try_parse_string("key_value"){
@@ -42,10 +52,20 @@ impl ResourceCredentials{
             },
             Err(_) => None
         };
+        let key_mode = match table.try_parse_string("key_mode"){
+            Ok(k) => {
+                match k.as_str(){
+                    "plain" => CredentialsMode::Plain,
+                    _ => CredentialsMode::Encoded
+                }
+            },
+            Err(_) => CredentialsMode::Encoded
+        };
         match resource_header {
             Some(header) => Ok(ResourceCredentials{
                 key: resource_key.unwrap(),
-                header: header
+                header: header,
+                mode: key_mode
             }),
             None => Err(ServerConfigError::NotAvailable)
         }

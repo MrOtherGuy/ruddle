@@ -20,7 +20,8 @@ pub enum ConnectionError{
     NoFrame,
     InvalidUTF8,
     InvalidRequest,
-    InternalError
+    InternalError,
+    NotSupported
 }
 
 impl std::fmt::Display for ConnectionError {
@@ -32,8 +33,8 @@ impl std::fmt::Display for ConnectionError {
             ConnectionError::NoFrame => write!(f, "Invalid HTTP frame"),
             ConnectionError::InvalidUTF8 => write!(f, "Invalid UTF8"),
             ConnectionError::InvalidRequest => write!(f, "Request could not be constructed"),
-            ConnectionError::InternalError => write!(f, "Server found itself from an unexpected state")
-
+            ConnectionError::InternalError => write!(f, "Server found itself from an unexpected state"),
+            ConnectionError::NotSupported => write!(f, "Requested data model is currently not supported")
         }
     }
 }
@@ -84,7 +85,7 @@ pub struct RequestOptions<'a>{
 pub async fn request_json(request_init: RequestOptions<'_>) -> ConnectionResult<RemoteData>{
     let data_kind = match request_init.model{
         RemoteResultType::RemoteJSON(ref kind) => kind.clone(),
-        _ => return Err(ConnectionError::InvalidRequest)
+        _ => return Err(ConnectionError::NotSupported)
     };
     let data_buffer = match request_resource(&request_init).await{
         Ok(s) => s,

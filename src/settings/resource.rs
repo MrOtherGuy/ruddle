@@ -5,7 +5,9 @@ use crate::models::{RemoteResultType,RemoteData};
 use crate::schemers::{schemaloader::SchemaTree};
 use std::path::PathBuf;
 use super::qualifieduri::QualifiedUri;
-use super::credentials::ResourceCredentials;
+use super::credentials::{CredentialsMode,ResourceCredentials};
+
+
 
 pub struct RequestCredentials{
     pub key: String,
@@ -67,9 +69,15 @@ impl RemoteResource{
     }
     pub fn request_credentials(&self, key: &str) -> Option<Result<RequestCredentials,ServerConfigError>>{
         match &self.credentials{
-            Some(c) => match c.derive_key(key) {
-                Ok(key) => Some(Ok(RequestCredentials{ key: c.header.clone(), value: key })),
-                Err(_) => Some(Err(ServerConfigError::DecodeError))
+            Some(c) => match &c.mode{
+                CredentialsMode::Plain => match String::from_utf8(c.key().clone()){
+                    Ok(s) => Some(Ok(RequestCredentials{ key: c.header.clone(), value: s})),
+                    Err(_) => Some(Err(ServerConfigError::DecodeError))
+                },
+                CredentialsMode::Encoded => match c.derive_key(key) {
+                    Ok(key) => Some(Ok(RequestCredentials{ key: c.header.clone(), value: key })),
+                    Err(_) => Some(Err(ServerConfigError::DecodeError))
+                }
             },
             None => None
         }
