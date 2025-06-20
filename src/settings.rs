@@ -13,7 +13,7 @@ mod qualifieduri;
 mod credentials;
 
 use pathprovider::PathProvider;
-use resource::RemoteResource;
+use resource::{ResourceStore,RemoteResource};
 
 pub type ServerConfigResult<T> = Result<T, ServerConfigError>;
 impl std::fmt::Display for ServerConfigError {
@@ -62,7 +62,7 @@ pub struct Settings<'a>{
     pub resources: Option<PathProvider<'a>>,
     pub writable_resources: Option<PathProvider<'a>>,
     pub user_agent: String,
-    pub remote_resources: Option<HashMap<String,RemoteResource>>,
+    remote_resources: Option<ResourceStore>,
     pub header_map: HashMap<ContentType,HashMap<String,HeaderValue>>,
     schema_tree: Option<SchemaTree>,
     pub allow_origins: HashSet<String>,
@@ -109,9 +109,38 @@ impl Settings<'_>{
             None => None
         }
     }
-    pub fn get_resource(&self,resource_name: &str) -> Option<&RemoteResource>{
-        match &self.remote_resources{
-            Some(remotes) => remotes.get(resource_name),
+    pub fn get_resource(&self,resource_name: &str, method: &hyper::Method) -> Option<&RemoteResource>{
+        let remotes = match &self.remote_resources{
+            Some(remotes) => remotes,
+            None => return None
+        };
+        let api = match method{
+            &hyper::Method::GET => &remotes.get_api,
+            &hyper::Method::POST => &remotes.post_api,
+            _ => return None
+        };
+        match api{
+            Some(a) => a.get(resource_name),
+            None => None
+        }
+    }
+    pub fn get_api(&self, resource_name: &str) -> Option<&RemoteResource>{
+        let remotes = match &self.remote_resources{
+            Some(remotes) => remotes,
+            None => return None
+        };
+        match &remotes.get_api{
+            Some(api) => api.get(resource_name),
+            None => None
+        }
+    }
+    pub fn post_api(&self, resource_name: &str) -> Option<&RemoteResource>{
+        let remotes = match &self.remote_resources{
+            Some(remotes) => remotes,
+            None => return None
+        };
+        match &remotes.post_api{
+            Some(api) => api.get(resource_name),
             None => None
         }
     }
@@ -193,24 +222,16 @@ impl Settings<'_>{
                 None
             }
         };
-        let remotes: Option<HashMap<String,RemoteResource>> = match config.get_table("remote_resources"){
+        let remote_store = match config.get_table("remote_resources"){
             Ok(s) => match s.is_empty(){
                 true => None,
-                false => {
-                    let mut hm = HashMap::new();
-                    for (key,val) in s.iter(){
-                        if let Ok(remote) = RemoteResource::try_from_config(&val,port_number,&schema_source){
-                            hm.insert(key.clone(),remote);
-                        }
-                            
-                    }
-                    Some(hm)
-                }
+                false => match ResourceStore::try_parse(&s,&schema_source, port_number){
+                    Ok(store) => Some(store),
+                    Err(_) => None
+                },
             },
-            Err(e) => {
-                println!("{}",e);
-                None
-            }
+            Err(_) => None
+
         };
         let headers : HashMap<ContentType,HashMap<String,HeaderValue>> = match config.get_table("headers"){
             Ok(s) => {
@@ -267,7 +288,7 @@ impl Settings<'_>{
             writable_resources: write_resources,
             resources: resources,
             user_agent: config.get::<String>("user_agent").unwrap_or("curl/7.54.1".to_string()),
-            remote_resources: remotes,
+            remote_resources: remote_store,
             header_map: headers,
             schema_tree: schema_source,
             api_required_headers: api_requirements

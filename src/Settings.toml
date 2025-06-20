@@ -38,6 +38,17 @@ bad = { url = ":example.com" }
 url = "http://127.0.0.1:9000/example_target.json"
 key_header = "x-custom-header"
 key_value = "FbUQdcS6ZFXnWKJc8hQu8K+YkKKhbEOI0aMxEGAjqS7EZC1o"
+schema = "test"
 file_targets = "./app/data/stored.json"
 model = "json"
-schema = "test"
+request_method = "GET"
+forward_queries = ["search"]
+
+[remote_resources.testi]
+url = "http://127.0.0.1:9000/api/"
+key_header = "x-custom-header"
+key_value = "plain header value"
+key_mode = "plain"
+file_targets = "./app/data/stored.json"
+model = "json"
+request_method = "POST"

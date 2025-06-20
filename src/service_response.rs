@@ -10,19 +10,19 @@ static NOTFOUND: &[u8] = b"Not Found";
 static SERVICE_UNAVAILABLE: &[u8] = b"Service unavailable";
 static BAD_METHOD: &[u8] = b"Method not allowed";
 
-pub enum ServiceResponse{
+pub enum ServiceResponse<'a>{
     NotFound,
     NotFoundEmpty,
     ServiceUnavailable,
     PostAPIResponse,
-    CommandResponse(ServerCommand),
+    CommandResponse(ServerCommand<'a>),
     Accepted,
     FileService,
     BadMethod,
     BadRequest
 }
 
-impl IntoFuture for ServiceResponse{
+impl IntoFuture for ServiceResponse<'_>{
     type Output = HyperResult;
     type IntoFuture = Ready<Self::Output>;
     fn into_future(self) -> Self::IntoFuture {
@@ -40,11 +40,11 @@ impl IntoFuture for ServiceResponse{
     }
 }
 
-impl ServiceResponse{
+impl ServiceResponse<'_>{
     pub async fn resolve(self,request:Request<hyper::body::Incoming>) -> HyperResult{
         match self{
             ServiceResponse::FileService => file_serve(request).await,
-            ServiceResponse::CommandResponse(command) => run_command(&command,request.headers()).await,
+            ServiceResponse::CommandResponse(command) => run_command(&command,request).await,
             ServiceResponse::PostAPIResponse => handle_post_api(request).await,
             _ => self.await
         }

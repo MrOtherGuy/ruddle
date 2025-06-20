@@ -12,11 +12,11 @@ use tokio_util::sync::CancellationToken;
 // on that here because it would be a cyclical dependency.
 use crate::support::{TokioIo, TokioTimer};
 
-use crate::settings::Settings;
+use crate::settings::{Settings,resource::ResourceMethod};
 use crate::service_response::ServiceResponse;
 use crate::server_service::ServerCommand;
-use crate::httpsconnector::{RequestOptions,request_json};
-use crate::models::RemoteData;
+use crate::httpsconnector::{RequestOptions,request_optionally_validated_json};
+use crate::models::{RemoteData,RemoteResultType};
 use crate::RuntimeMode;
 
 pub type TaskResult = Result<TaskInfo, TaskError>;
@@ -72,7 +72,7 @@ async fn shutdown_signal(token: CancellationToken) {
 
 #[tokio::main]
 pub async fn update_task(conf: &Settings, runtime_mode: RuntimeMode) -> TaskResult{
-    let resource = match conf.get_resource("update") {
+    let resource = match conf.get_resource("update", &hyper::Method::GET) {
         Some(res) => res,
         None => return Err(TaskError::Failure)
     };
@@ -87,10 +87,14 @@ pub async fn update_task(conf: &Settings, runtime_mode: RuntimeMode) -> TaskResu
         uri: resource.uri.uri().clone(),
         credentials: creds,
         user_agent: &conf.user_agent,
-        model: resource.model.clone(),
-        schema: conf.get_schema(&resource.schema)
+        method: &ResourceMethod::Get,
+        body: None
     };
-    let result = match request_json(request_init).await{
+    let data_kind = match &resource.model{
+        RemoteResultType::RemoteJSON(kind) => kind.clone(),
+        _ => return Err(TaskError::Failure)
+    };
+    let result = match request_optionally_validated_json(request_init, data_kind, conf.get_schema(&resource.schema)).await{
         Ok(r) => match &resource.target{
             Some(res) => {
                 match runtime_mode{
@@ -224,29 +228,44 @@ pub async fn start_server(conf: &Settings,runtime_mode: RuntimeMode) -> TaskResu
                     if token_clone.is_cancelled(){
                         return ServiceResponse::ServiceUnavailable.resolve(req)
                     }
-                    let response = match req.method() {
-                        &Method::GET => match req.uri().path().strip_prefix("/api/"){
-                          Some(command) => match ServerCommand::from_str(command) {
-                            Some(c) => ServiceResponse::CommandResponse(c),
-                            None => ServiceResponse::NotFound,
-                          },
-                          None => ServiceResponse::FileService
-                        },
-                        &Method::HEAD => match req.uri().path() {
-                            "/api/shutdown" => {
+                    let response = match (req.method(), req.uri().path()) {
+                        (&Method::GET,path) => match path.strip_prefix("/api/"){
+                            Some(command) => {
                                 let conf = match crate::SERVER_CONF.get(){
                                     Some(c) => c,
                                     None => return ServiceResponse::BadRequest.resolve(req)
                                 };
-                                if !conf.has_required_headers(req.headers()){
-                                    return ServiceResponse::BadRequest.resolve(req)
+                                match conf.get_api(command){
+                                    Some(api) => ServiceResponse::CommandResponse(ServerCommand::GetAPIRequest(api)),
+                                    None => ServiceResponse::NotFound
                                 }
-                                token_clone.cancel();
-                                ServiceResponse::Accepted
-                            },
-                            _ => ServiceResponse::NotFoundEmpty
+                          },
+                          None => ServiceResponse::FileService
                         },
-                        &Method::POST => ServiceResponse::PostAPIResponse,
+                        (&Method::POST,path) => match path.strip_prefix("/api/"){
+                            Some(command) => {
+                                let conf = match crate::SERVER_CONF.get(){
+                                    Some(c) => c,
+                                    None => return ServiceResponse::BadRequest.resolve(req)
+                                };
+                                match conf.post_api(command){
+                                    Some(api) => ServiceResponse::CommandResponse(ServerCommand::PostAPIRequest(api)),
+                                    None => ServiceResponse::PostAPIResponse
+                                }
+                          },
+                          None => ServiceResponse::NotFoundEmpty
+                        },
+                        (&Method::HEAD,"/api/shutdown") => {
+                            let conf = match crate::SERVER_CONF.get(){
+                                Some(c) => c,
+                                None => return ServiceResponse::BadRequest.resolve(req)
+                            };
+                            if !conf.has_required_headers(req.headers()){
+                                return ServiceResponse::BadRequest.resolve(req)
+                            }
+                            token_clone.cancel();
+                            ServiceResponse::Accepted
+                        },
                         _ => ServiceResponse::BadMethod
                     };
                     response.resolve(req)

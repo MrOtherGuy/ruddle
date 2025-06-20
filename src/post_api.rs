@@ -57,7 +57,7 @@ async fn try_save_data(req: Request<hyper::body::Incoming>) -> HyperResult{
     }
 }
 
-async fn read_post_body(req: Request<hyper::body::Incoming>) -> Result<Vec<u8>,std::io::Error>{
+pub async fn read_post_body(req: Request<hyper::body::Incoming>) -> Result<Vec<u8>,std::io::Error>{
     use bytes::Buf;
     use std::io::Read;
     use std::io::{Error,ErrorKind};

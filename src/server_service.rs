@@ -6,9 +6,11 @@ use hyper::{Method, Request, Response, StatusCode, HeaderMap};
 use tokio::fs::File;
 use tokio_util::io::ReaderStream;
 
+use crate::settings::resource::{RemoteResource,ResourceMethod};
 use crate::SERVER_CONF;
-use crate::httpsconnector::{RequestOptions,request_json,ConnectionError};
-use crate::models::RemoteData;
+use crate::httpsconnector::{RequestOptions,request_optionally_validated_json,ConnectionError};
+use crate::post_api::read_post_body;
+use crate::models::{RemoteResultType,RemoteData};
 use crate::service_response::ServiceResponse;
 use crate::content_type::{NegotiationError,ContentType};
 
@@ -19,45 +21,113 @@ static INDEX: &str = "/index.html";
 
 
 
-pub enum ServerCommand{
-    Update,
-    Thing
+pub enum ServerCommand<'a>{
+    GetAPIRequest(&'a RemoteResource),
+    PostAPIRequest(&'a RemoteResource)
 }
 
-impl ServerCommand{
-    pub fn from_str(input: &str) -> Option<Self>{
-        match input{
-            "update" => Some(Self::Update),
-            "thing" => Some(Self::Thing),
-            _ => None
-        }
-    }
-    pub fn name(&self) -> &str{
-        match self{
-            ServerCommand::Update => "update",
-            ServerCommand::Thing => "thing"
-        }
-    }
-}
-
-fn data_updated_handler(json_data: RemoteData) -> HyperResponse {
+fn command_task_resolved(json_data: RemoteData) -> HyperResponse {
     Response::builder()
         .status(StatusCode::OK)
         .body(Full::new(json_data.into_bytes().into()).map_err(|e| match e {}).boxed())
         .unwrap()
 }
 
-pub async fn run_command(command: &ServerCommand, headers: &HeaderMap) -> HyperResult {
+pub async fn run_command(command: &ServerCommand<'_>, request: Request<hyper::body::Incoming>) -> HyperResult {
     let conf = match SERVER_CONF.get(){
         Some(c) => c,
         None => return ServiceResponse::not_found()
     };
-    if !conf.has_required_headers(headers){
+    if !conf.has_required_headers(request.headers()){
         return ServiceResponse::bad_request()
     }
-    match update_task(command.name(),conf).await{
-        Ok(s) => Ok(data_updated_handler(s)),
+    let resource = match command{
+        ServerCommand::GetAPIRequest(res) => res,
+        ServerCommand::PostAPIRequest(res) => res
+    };
+    match do_command_task(resource,conf,request).await{
+        Ok(s) => Ok(command_task_resolved(s)),
         Err(_) => ServiceResponse::not_found()
+    }
+}
+
+async fn do_command_task(resource : &RemoteResource, conf: &crate::Settings<'_>,request : Request<hyper::body::Incoming>) -> Result<RemoteData,ConnectionError>{
+        match resource.get_cached(){
+        Some(res) => {
+            println!("Returning cached data");
+            return Ok(res.clone())
+        },
+        None => ()
+    };
+    let creds = match resource.request_credentials("2.718281828459045"){
+        Some(res) => match res{
+            Ok(dec) => Some(dec),
+            Err(_) => return Err(ConnectionError::InvalidRequest)
+        },
+        None => None
+    };
+    let built_uri = match (&resource.forward_queries, request.uri().query()){
+        (Some(_), Some(request_query)) => match resource.compose_uri(request_query){
+            Ok(built) => built,
+            Err(_) => return Err(ConnectionError::InvalidRequest)
+        },
+        (_,_) => resource.uri.uri().into(),
+    };
+    let data_kind = match &resource.model{
+        RemoteResultType::RemoteJSON(kind) => kind.clone(),
+        _ => return Err(ConnectionError::NotSupported)
+    };
+    let request_init = match resource.method{
+        ResourceMethod::Get => RequestOptions{
+            uri: built_uri,
+            credentials: creds,
+            user_agent: &conf.user_agent,
+            method: &resource.method,
+            body: None
+        },
+        ResourceMethod::Post => {
+            let body = read_post_body(request).await;
+            if let Err(e) = body{
+                eprintln!("{e}");
+                return Err(ConnectionError::InvalidRequest)
+            }
+            // Should maybe check against schema or something
+            RequestOptions{
+                uri: built_uri,
+                credentials: creds,
+                user_agent: &conf.user_agent,
+                method: &resource.method,
+                body: Some(body.unwrap().into())
+            }
+        }
+    };
+
+    match request_optionally_validated_json(request_init, data_kind, conf.get_schema(&resource.schema)).await{
+        Ok(r) => {
+            
+            match &resource.target{
+                Some(res) => {
+                    match res.write_file(&r).await{
+                        Ok(_) => println!("file saved!"),
+                        Err(e) => eprintln!("{:?}",e)
+                    };
+                    ()
+                },
+                None => ()
+            }
+            if resource.no_cache {
+                return Ok(r)
+            }
+            println!("Inserting to cache...");
+            match resource.cache_result(r){
+                Ok(r) => Ok(r),
+                Err(_) => Err(ConnectionError::InternalError)
+            }
+        },
+        Err(e) => {
+          println!("{}",e);
+          Err(e)
+        }
     }
 }
 
@@ -105,58 +175,4 @@ async fn simple_file_send(filename: &str, headers: &HeaderMap) -> HyperResult {
         }
     }
     
-}
-
-async fn update_task(resource_name : &str, conf: &crate::Settings<'_>) -> Result<RemoteData,ConnectionError>{
-    let resource = match conf.get_resource(resource_name){
-        Some(res) => res,
-        None => return Err(ConnectionError::InvalidRequest)
-    };
-    match resource.get_cached(){
-        Some(res) => {
-            println!("Returning cached data");
-            return Ok(res.clone())
-        },
-        None => ()
-    };
-    let creds = match resource.request_credentials("2.718281828459045"){
-        Some(res) => match res{
-            Ok(dec) => Some(dec),
-            Err(_) => return Err(ConnectionError::InvalidRequest)
-        },
-        None => None
-    };
-    let request_init = RequestOptions{
-        uri: resource.uri.uri().clone(),
-        credentials: creds,
-        user_agent: &conf.user_agent,
-        model: resource.model.clone(),
-        schema: conf.get_schema(&resource.schema)
-    };
-    match request_json(request_init).await{
-        Ok(r) => {
-            match &resource.target{
-                Some(res) => {
-                    match res.write_file(&r).await{
-                        Ok(_) => println!("file saved!"),
-                        Err(e) => eprintln!("{:?}",e)
-                    };
-                    ()
-                },
-                None => ()
-            }
-            println!("Inserting to cache...");
-            if resource.no_cache {
-                return Ok(r)
-            }
-            match resource.cache_result(r){
-                Ok(r) => Ok(r),
-                Err(_) => Err(ConnectionError::InternalError)
-            }
-        },
-        Err(e) => {
-          println!("{}",e);
-          Err(e)
-        }
-    }
 }

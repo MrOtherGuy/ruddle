@@ -210,7 +210,7 @@ mod tests {
         let cli = Cli::parse();
         let config = build_test_config();
         let settings = Settings::from_config(config,&cli);
-        match settings.get_resource("thing").unwrap().derive_key("2.71828182845904"){
+        match settings.get_resource("thing", &hyper::Method::GET).unwrap().derive_key("2.71828182845904"){
             Ok(k) => assert_eq!(k,"Hello! This is my custom value here."),
             Err(_) => panic!("Decode key mismatch")
         }
@@ -265,7 +265,7 @@ mod tests {
         let cli = Cli::parse();
         let config = build_test_config();
         let settings = Settings::from_config(config,&cli);
-        match settings.get_resource("missing").unwrap().derive_key("2.71828182845904"){
+        match settings.get_api("missing").unwrap().derive_key("2.71828182845904"){
             Ok(_) => panic!("Key decoding should have failed"),
             Err(e) => match e {
                 settings::ServerConfigError::NotAvailable => (),
@@ -296,7 +296,7 @@ server_root = "./api"
         let cli = Cli::parse();
         let config = build_test_config();
         let settings = Settings::from_config(config,&cli);
-        match settings.get_resource("bad"){
+        match settings.get_api("bad",){
             Some(_k) => panic!("This shouldn't exist"),
             None => ()
         }
@@ -306,7 +306,7 @@ server_root = "./api"
         let cli = Cli::parse();
         let config = build_test_config();
         let settings = Settings::from_config(config,&cli);
-        match settings.get_resource("disallowed"){
+        match settings.get_api("disallowed"){
             Some(_k) => panic!("This shouldn't exist"),
             None => ()
         }
@@ -316,7 +316,7 @@ server_root = "./api"
         let cli = Cli::parse();
         let config = build_test_config();
         let settings = Settings::from_config(config,&cli);
-        match settings.get_resource("thing").unwrap().derive_key("2.71828182845905"){
+        match settings.get_api("thing").unwrap().derive_key("2.71828182845905"){
             Ok(_) => panic!("Decoding with known bad key succeeded"),
             Err(_) => println!("DecodeError as expected")
         }
@@ -326,7 +326,7 @@ server_root = "./api"
         let cli = Cli::parse();
         let config = build_test_config();
         let settings = Settings::from_config(config,&cli);
-        match settings.get_resource("unknown"){
+        match settings.get_api("unknown"){
             Some(_) => panic!("Decoding with known bad key succeeded"),
             None => ()
         }
@@ -389,7 +389,7 @@ model = "text"
         .build()
         .unwrap();
         let settings = Settings::from_config(config,&cli);
-        match settings.remote_resources.unwrap().get("update").unwrap().model{
+        match settings.get_api("update").unwrap().model{
             crate::models::RemoteResultType::RemoteTXT => (),
             _ => panic!("Incorrect RemoteBytes")
         }
@@ -409,6 +409,7 @@ resources = ["*"]
 url = "https://example.com"
 model = "json"
 schema = "test"
+request_method = "get"
 "#,
         config::FileFormat::Toml,
         ))
@@ -421,11 +422,8 @@ schema = "test"
 {"test_code":"hello", "test_float": 4.5, "test_int": 1, "test_number": 32465476}
 ]}
 "#;
-        let schema_name = match &settings.remote_resources{
-            Some(r) => match r.get("update"){
-                Some(res) => &res.schema,
-                None => panic!("No resource")
-            },
+        let schema_name = match &settings.get_api("update"){
+            Some(res) => &res.schema,
             None => panic!("No remote table")
         };
         let validator = &settings.get_schema(schema_name).unwrap();
@@ -434,5 +432,30 @@ schema = "test"
         
         
     }
+    #[test]
+    fn test_post_api(){
+        let cli = Cli::parse();
+        let config = config::Config::builder()
+        .add_source(config::File::from_str(
+r#"
+port = 9000
+server_root = "./"
 
+[remote_resources.update]
+url = "https://example.com"
+file_target = "./app/data/stored.json"
+model = "text"
+request_method = "POST"
+forward_headers = ["test"]
+"#,
+        config::FileFormat::Toml,
+        ))
+        .build()
+        .unwrap();
+        let settings = Settings::from_config(config,&cli);
+        match settings.post_api("update").unwrap().model{
+            crate::models::RemoteResultType::RemoteTXT => (),
+            _ => panic!("Incorrect")
+        }
+    }
 }

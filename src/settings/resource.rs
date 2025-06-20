@@ -1,13 +1,42 @@
 #![deny(warnings)]
-
+use std::collections::{HashMap,HashSet};
 use crate::settings::ServerConfigError;
 use crate::models::{RemoteResultType,RemoteData};
 use crate::schemers::{schemaloader::SchemaTree};
 use std::path::PathBuf;
-use super::qualifieduri::QualifiedUri;
+use super::qualifieduri::{QueryParams,QualifiedUri};
 use super::credentials::{CredentialsMode,ResourceCredentials};
 
+#[derive(Debug)]
+pub enum ResourceMethod{
+    Get,
+    Post
+}
+#[derive(Debug)]
+pub struct ResourceStore{
+    pub get_api: Option<HashMap<String,RemoteResource>>,
+    pub post_api: Option<HashMap<String,RemoteResource>>
+}
 
+impl ResourceStore{
+    pub fn try_parse(table : &HashMap<String, config::Value>, schema_source: &Option<SchemaTree>, port_number : u16) -> Result<ResourceStore,ServerConfigError>{
+        let mut get_map = HashMap::new();
+        let mut post_map = HashMap::new();
+        for (key,val) in table.iter(){
+            if let Ok(remote) = RemoteResource::try_from_config(&val,port_number,schema_source){
+                match &remote.method{
+                    ResourceMethod::Get => get_map.insert(key.clone(),remote),
+                    ResourceMethod::Post => post_map.insert(key.clone(),remote)
+                };
+            }
+                
+        }
+        Ok(ResourceStore{
+            get_api: Some(get_map),
+            post_api: Some(post_map)
+        })
+    }
+}
 
 pub struct RequestCredentials{
     pub key: String,
@@ -57,10 +86,22 @@ pub struct RemoteResource{
     pub model: crate::models::RemoteResultType,
     cache: std::sync::OnceLock<RemoteData>,
     pub schema: Option<String>,
-    pub no_cache: bool
+    pub no_cache: bool,
+    pub forward_queries: Option<HashSet<String>>,
+    pub method: ResourceMethod
 }
 #[allow(unused)]
 impl RemoteResource{
+    pub fn compose_uri(&self, query: &str) -> Result<hyper::Uri,ServerConfigError>{
+        let mut params = QueryParams::from_str(query);
+        match &self.forward_queries{
+            Some(fq) => {
+                params.map.retain(|x,_| fq.contains(x));
+                self.uri.composed(params)
+            },
+            None => Ok(self.uri.uri())
+        }
+    }
     pub fn derive_key(&self, key: &str) -> Result<String,ServerConfigError>{
         match &self.credentials {
             Some(cred) => cred.derive_key(key),
@@ -97,7 +138,7 @@ impl RemoteResource{
             }
         }
     }
-    pub fn try_from_config(conf: &config::Value, disallowed_port: u16, tree: &Option<SchemaTree>) -> Result<RemoteResource,ServerConfigError>{
+    fn try_from_config(conf: &config::Value, disallowed_port: u16, tree: &Option<SchemaTree>) -> Result<RemoteResource,ServerConfigError>{
         try_into_remote(conf,disallowed_port,tree)
     }
 }
@@ -124,6 +165,14 @@ fn try_into_remote(conf: &config::Value,disallowed_port: u16, tree: &Option<Sche
                         Ok(k) => Some(WriteTarget::new(k)),
                         Err(_) => None
                     };
+                    let request_method = match table.try_parse_string("request_method"){
+                        Ok(k) => match k.as_str(){
+                            "POST" | "post" => ResourceMethod::Post,
+                            "GET" | "get" => ResourceMethod::Get,
+                            _ => return Err(ServerConfigError::InvalidValue)
+                        },
+                        Err(_) => ResourceMethod::Get
+                    };
                     let data_model = match table.try_parse_string("model"){
                         Ok(k) => match RemoteResultType::from_str(&k){
                             Some(t) => t,
@@ -137,6 +186,25 @@ fn try_into_remote(conf: &config::Value,disallowed_port: u16, tree: &Option<Sche
                             Err(_) => return Err(ServerConfigError::InvalidValue)
                         }
                         None => false
+                    };
+                    let forward_queries = match table.get("forward_queries"){
+                        Some(va) => match va.clone().into_array(){
+                            Ok(list) => {
+                                let mut set = HashSet::new();
+                                list.into_iter().for_each(|val| {
+                                    if let Ok(s) = val.into_string(){
+                                        set.insert(s.clone());
+                                    }
+                                });
+                                Some(set)
+                            },
+                            Err(e) => {
+                                println!("{}",e);
+                                Some(HashSet::new())
+                            }
+                        },
+                        None => None
+                        
                     };
                     let schema = match &tree{
                         Some(onetree) => match table.get("schema"){
@@ -156,12 +224,14 @@ fn try_into_remote(conf: &config::Value,disallowed_port: u16, tree: &Option<Sche
                     }
                     return Ok(RemoteResource{
                         uri: uri_conversion.unwrap(),
+                        method: request_method,
                         credentials: creds,
                         target: write_target,
                         model: data_model,
                         cache: std::sync::OnceLock::new(),
                         no_cache: no_cache,
-                        schema: schema
+                        schema: schema,
+                        forward_queries: forward_queries
                     });
                 }
                 eprintln!("Resource with invalid url is ignored");
