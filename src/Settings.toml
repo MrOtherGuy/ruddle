@@ -34,6 +34,15 @@ x-custom-header = "a123"
 thing = { url = "http://example.com" }
 bad = { url = ":example.com" }
 
+[apis]
+test = { command = "testi", method = "get" }
+update = { command = "update", method = "get" }
+
+[apis.version]
+require_headers = { test-header = "hello", x-custom-header = "a124", invalid-header = [1] }
+method = "post"
+response = { value = "{\"data\": \"Hello world!\"}", code = 200, type = "application/json" }
+
 [remote_resources.update]
 url = "http://127.0.0.1:9000/example_target.json"
 key_header = "x-custom-header"
@@ -45,10 +54,9 @@ request_method = "GET"
 forward_queries = ["search"]
 
 [remote_resources.testi]
-url = "http://127.0.0.1:9000/api/"
+url = "http://127.0.0.1:9000/api/version"
 key_header = "x-custom-header"
 key_value = "plain header value"
 key_mode = "plain"
-file_targets = "./app/data/stored.json"
 model = "json"
 request_method = "POST"

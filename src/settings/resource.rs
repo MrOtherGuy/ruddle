@@ -1,6 +1,6 @@
 #![deny(warnings)]
 use std::collections::{HashMap,HashSet};
-use crate::settings::ServerConfigError;
+use crate::settings::{ServerConfigError,commandapi::RequestCommand};
 use crate::models::{RemoteResultType,RemoteData};
 use crate::schemers::{schemaloader::SchemaTree};
 use std::path::PathBuf;
@@ -14,26 +14,27 @@ pub enum ResourceMethod{
 }
 #[derive(Debug)]
 pub struct ResourceStore{
-    pub get_api: Option<HashMap<String,RemoteResource>>,
-    pub post_api: Option<HashMap<String,RemoteResource>>
+    inner: HashMap<String,RemoteResource>
 }
 
 impl ResourceStore{
+    pub fn get_command_resource(&self,request_command: &RequestCommand) -> &RemoteResource{
+        // Note! matching RemoteResource must be available, because otherwise that RequestCommand could not have been constructed in the first place.
+        self.inner.get(request_command.name()).unwrap()
+    }
+    pub fn inner(&self) -> &HashMap<String,RemoteResource>{
+        &self.inner
+    }
     pub fn try_parse(table : &HashMap<String, config::Value>, schema_source: &Option<SchemaTree>, port_number : u16) -> Result<ResourceStore,ServerConfigError>{
-        let mut get_map = HashMap::new();
-        let mut post_map = HashMap::new();
+        let mut map = HashMap::new();
         for (key,val) in table.iter(){
             if let Ok(remote) = RemoteResource::try_from_config(&val,port_number,schema_source){
-                match &remote.method{
-                    ResourceMethod::Get => get_map.insert(key.clone(),remote),
-                    ResourceMethod::Post => post_map.insert(key.clone(),remote)
-                };
-            }
+                map.insert(key.clone(),remote);
+            };
                 
         }
         Ok(ResourceStore{
-            get_api: Some(get_map),
-            post_api: Some(post_map)
+            inner: map
         })
     }
 }
@@ -90,6 +91,8 @@ pub struct RemoteResource{
     pub forward_queries: Option<HashSet<String>>,
     pub method: ResourceMethod
 }
+
+
 #[allow(unused)]
 impl RemoteResource{
     pub fn compose_uri(&self, query: &str) -> Result<hyper::Uri,ServerConfigError>{

@@ -72,7 +72,9 @@ async fn shutdown_signal(token: CancellationToken) {
 
 #[tokio::main]
 pub async fn update_task(conf: &Settings, runtime_mode: RuntimeMode) -> TaskResult{
-    let resource = match conf.get_resource("update", &hyper::Method::GET) {
+    use crate::settings::commandapi::RequestCommand;
+    let command = RequestCommand::new("update");
+    let resource = match conf.maybe_panics_get_command_resource(&command) {
         Some(res) => res,
         None => return Err(TaskError::Failure)
     };

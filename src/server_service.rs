@@ -7,12 +7,14 @@ use tokio::fs::File;
 use tokio_util::io::ReaderStream;
 
 use crate::settings::resource::{RemoteResource,ResourceMethod};
+use crate::settings::commandapi::ServerAPI;
 use crate::SERVER_CONF;
 use crate::httpsconnector::{RequestOptions,request_optionally_validated_json,ConnectionError};
 use crate::post_api::read_post_body;
 use crate::models::{RemoteResultType,RemoteData};
 use crate::service_response::ServiceResponse;
 use crate::content_type::{NegotiationError,ContentType};
+
 
 pub type HyperResponse = Response<BoxBody<Bytes, std::io::Error>>;
 pub type HyperResult = hyper::Result<HyperResponse>;
@@ -22,8 +24,8 @@ static INDEX: &str = "/index.html";
 
 
 pub enum ServerCommand<'a>{
-    GetAPIRequest(&'a RemoteResource),
-    PostAPIRequest(&'a RemoteResource)
+    GetAPIRequest(&'a ServerAPI),
+    PostAPIRequest(&'a ServerAPI)
 }
 
 fn command_task_resolved(json_data: RemoteData) -> HyperResponse {
@@ -38,13 +40,21 @@ pub async fn run_command(command: &ServerCommand<'_>, request: Request<hyper::bo
         Some(c) => c,
         None => return ServiceResponse::not_found()
     };
-    if !conf.has_required_headers(request.headers()){
+    
+    let server_api = match command{
+        ServerCommand::GetAPIRequest(comm) => comm,
+        ServerCommand::PostAPIRequest(comm) => comm
+    };
+    if !server_api.has_required_headers(request.headers()){
         return ServiceResponse::bad_request()
     }
-    let resource = match command{
-        ServerCommand::GetAPIRequest(res) => res,
-        ServerCommand::PostAPIRequest(res) => res
-    };
+    if server_api.is_data(){
+        return server_api.resolve_as_data()
+    }
+    // At this point, the command has to be a RequestCommand, and thus there MUST exist a corresponding resource
+    let api_command = server_api.as_command().unwrap();
+    let resource = conf.get_command_resource(api_command);
+
     match do_command_task(resource,conf,request).await{
         Ok(s) => Ok(command_task_resolved(s)),
         Err(_) => ServiceResponse::not_found()

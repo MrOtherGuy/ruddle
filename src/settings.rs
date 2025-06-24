@@ -5,13 +5,15 @@ use std::collections::{HashSet,HashMap};
 use std::path::Path;
 
 use crate::schemers::{schemaloader::{build_test,SchemaTree},validator::Validator};
-use crate::content_type::{HeaderValue,ContentType,GetHeaderValueString};
+use crate::content_type::{HeaderValue,ContentType,GetHeaderValueString,HeaderMap};
 
 mod pathprovider;
 pub mod resource;
 mod qualifieduri;
 mod credentials;
+pub(crate) mod commandapi;
 
+use commandapi::{ServerAPI,CommandAPI,RequestCommand};
 use pathprovider::PathProvider;
 use resource::{ResourceStore,RemoteResource};
 
@@ -54,6 +56,36 @@ pub enum ServerConfigError{
     NoSchemaSource
 }
 
+pub(crate) fn parse_config_string_table(config : &HashMap<String, config::Value>, table_name: &str) -> Option<HashMap<String,String>>{
+    match config.get(table_name){
+        Some(t) => match t.clone().into_table(){
+            Ok(table) => {
+                let mut map = HashMap::new();
+                for (key,val) in table.iter(){
+                    if let Ok(value) = val.clone().into_string(){
+                        map.insert(key.clone(),value);
+                    };
+                };
+                match map.is_empty(){
+                    true => None,
+                    false => Some(map)
+                }
+            },
+            Err(_) => None
+        },
+        None => None
+    }
+}
+
+pub(crate) fn merge_string_maps(mut owned: HashMap<String,String>, ref_map: &HashMap<String,String>) -> HashMap<String,String>{
+    for (key,val) in ref_map.iter(){
+        if !owned.contains_key(key){
+            owned.insert(key.clone(),val.clone());
+        }
+    }
+    owned
+}
+
 #[derive(Debug)]
 pub struct Settings<'a>{
     pub port: u16,
@@ -66,8 +98,11 @@ pub struct Settings<'a>{
     pub header_map: HashMap<ContentType,HashMap<String,HeaderValue>>,
     schema_tree: Option<SchemaTree>,
     pub allow_origins: HashSet<String>,
-    api_required_headers: Option<HashMap<String,String>>
+    api_required_headers: Option<HashMap<String,String>>,
+    commands: Option<CommandAPI>
 }
+
+
 
 impl Settings<'_>{
     pub fn has_required_headers(&self, request_headers: &hyper::HeaderMap) -> bool{
@@ -109,40 +144,30 @@ impl Settings<'_>{
             None => None
         }
     }
-    pub fn get_resource(&self,resource_name: &str, method: &hyper::Method) -> Option<&RemoteResource>{
-        let remotes = match &self.remote_resources{
-            Some(remotes) => remotes,
-            None => return None
-        };
-        let api = match method{
-            &hyper::Method::GET => &remotes.get_api,
-            &hyper::Method::POST => &remotes.post_api,
-            _ => return None
-        };
-        match api{
-            Some(a) => a.get(resource_name),
-            None => None
-        }
+    pub fn get_command_resource(&self, request_command: &RequestCommand) -> &RemoteResource{
+        let rr = self.remote_resources.as_ref().unwrap();
+        rr.get_command_resource(request_command)
     }
-    pub fn get_api(&self, resource_name: &str) -> Option<&RemoteResource>{
-        let remotes = match &self.remote_resources{
-            Some(remotes) => remotes,
+    pub fn maybe_panics_get_command_resource(&self, request_command: &RequestCommand) -> Option<&RemoteResource>{
+        let rr = match &self.remote_resources{
+            Some(rr) => rr,
             None => return None
         };
-        match &remotes.get_api{
-            Some(api) => api.get(resource_name),
-            None => None
-        }
+        Some(rr.get_command_resource(request_command))
     }
-    pub fn post_api(&self, resource_name: &str) -> Option<&RemoteResource>{
-        let remotes = match &self.remote_resources{
-            Some(remotes) => remotes,
+    pub fn get_api(&self, resource_name: &str) -> Option<&ServerAPI>{
+        let commands = match &self.commands{
+            Some(comms) => comms,
             None => return None
         };
-        match &remotes.post_api{
-            Some(api) => api.get(resource_name),
-            None => None
-        }
+        commands.get_api(resource_name)
+    }
+    pub fn post_api(&self, resource_name: &str) -> Option<&ServerAPI>{
+        let commands = match &self.commands{
+            Some(comms) => comms,
+            None => return None
+        };
+        commands.post_api(resource_name)
     }
     pub fn from_config(config: Config, cli: &crate::Cli) -> Settings<'static>{
         
@@ -233,7 +258,8 @@ impl Settings<'_>{
             Err(_) => None
 
         };
-        let headers : HashMap<ContentType,HashMap<String,HeaderValue>> = match config.get_table("headers"){
+        
+        let headers : HeaderMap = match config.get_table("headers"){
             Ok(s) => {
                 let mut map = HashMap::new();
                 
@@ -276,6 +302,11 @@ impl Settings<'_>{
             },
             Err(_) => HashMap::new()
         };
+        let ref_map = match &remote_store{
+            Some(store) => store.inner(),
+            None => &HashMap::new()
+        };
+        let commands = CommandAPI::try_parse(&config,&ref_map,&api_requirements);
         let root = config.get::<String>("server_root").unwrap_or("server_root".to_string());
         if root.starts_with("api/") || root.starts_with("./api/") || root == "api" || root == "./api"{
             panic!("Server root directory must not be named 'api'");
@@ -291,6 +322,7 @@ impl Settings<'_>{
             remote_resources: remote_store,
             header_map: headers,
             schema_tree: schema_source,
+            commands: commands,
             api_required_headers: api_requirements
         }
     }

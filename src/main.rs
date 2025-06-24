@@ -200,6 +200,8 @@ missing = { url = "http://example.com", key_value = "eVz3/UsDq0w2nTXr89lDG20fd4b
     c
 }
 
+#[cfg(test)]
+use crate::settings::commandapi::RequestCommand;
 
 #[cfg(test)]
 mod tests {
@@ -210,7 +212,7 @@ mod tests {
         let cli = Cli::parse();
         let config = build_test_config();
         let settings = Settings::from_config(config,&cli);
-        match settings.get_resource("thing", &hyper::Method::GET).unwrap().derive_key("2.71828182845904"){
+        match settings.get_command_resource(&RequestCommand::new("thing")).derive_key("2.71828182845904"){
             Ok(k) => assert_eq!(k,"Hello! This is my custom value here."),
             Err(_) => panic!("Decode key mismatch")
         }
@@ -265,7 +267,7 @@ mod tests {
         let cli = Cli::parse();
         let config = build_test_config();
         let settings = Settings::from_config(config,&cli);
-        match settings.get_api("missing").unwrap().derive_key("2.71828182845904"){
+        match settings.get_command_resource(&RequestCommand::new("missing")).derive_key("2.71828182845904"){
             Ok(_) => panic!("Key decoding should have failed"),
             Err(e) => match e {
                 settings::ServerConfigError::NotAvailable => (),
@@ -316,7 +318,7 @@ server_root = "./api"
         let cli = Cli::parse();
         let config = build_test_config();
         let settings = Settings::from_config(config,&cli);
-        match settings.get_api("thing").unwrap().derive_key("2.71828182845905"){
+        match settings.get_command_resource(&RequestCommand::new("thing")).derive_key("2.71828182845905"){
             Ok(_) => panic!("Decoding with known bad key succeeded"),
             Err(_) => println!("DecodeError as expected")
         }
@@ -389,7 +391,7 @@ model = "text"
         .build()
         .unwrap();
         let settings = Settings::from_config(config,&cli);
-        match settings.get_api("update").unwrap().model{
+        match settings.get_command_resource(&RequestCommand::new("update")).model{
             crate::models::RemoteResultType::RemoteTXT => (),
             _ => panic!("Incorrect RemoteBytes")
         }
@@ -422,10 +424,7 @@ request_method = "get"
 {"test_code":"hello", "test_float": 4.5, "test_int": 1, "test_number": 32465476}
 ]}
 "#;
-        let schema_name = match &settings.get_api("update"){
-            Some(res) => &res.schema,
-            None => panic!("No remote table")
-        };
+        let schema_name = &settings.get_command_resource(&RequestCommand::new("update")).schema;
         let validator = &settings.get_schema(schema_name).unwrap();
         let result: serde_json::Result<serde_json::Value> = serde_json::from_str(tested_json);
         validator.validate(&result.unwrap()).unwrap()
@@ -453,7 +452,7 @@ forward_headers = ["test"]
         .build()
         .unwrap();
         let settings = Settings::from_config(config,&cli);
-        match settings.post_api("update").unwrap().model{
+        match settings.get_command_resource(&RequestCommand::new("update")).model{
             crate::models::RemoteResultType::RemoteTXT => (),
             _ => panic!("Incorrect")
         }

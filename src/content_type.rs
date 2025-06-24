@@ -1,8 +1,9 @@
 #![deny(warnings)]
-use hyper::{Response, HeaderMap};
+use std::collections::HashMap;
+use hyper::Response;
 use crate::Settings;
 
-
+pub(crate) type HeaderMap = HashMap<ContentType,HashMap<String,HeaderValue>>;
 pub struct MIMEParseError{}
 
 #[derive(Debug, Eq, Hash, PartialEq)]
@@ -78,7 +79,7 @@ pub trait GetHeaderValueString{
     fn get_as_string(&self,header_name: &str) -> Option<&str>;
 }
 
-impl GetHeaderValueString for HeaderMap{
+impl GetHeaderValueString for hyper::HeaderMap{
     fn get_as_string(&self, header_name: &str) -> Option<&str>{
         match self.get(header_name){
             Some(hv) => match hv.to_str(){
@@ -91,7 +92,7 @@ impl GetHeaderValueString for HeaderMap{
 }
 
 impl ContentType{
-    pub fn into_response(self, config: &Settings, headers: &HeaderMap) -> NegotiationResult{
+    pub fn into_response(self, config: &Settings, headers: &hyper::HeaderMap) -> NegotiationResult{
         let content_type = self.get_content_type_if_supported(headers);
         if content_type.is_none(){
             return Err(NegotiationError::NotAcceptable)
@@ -123,7 +124,7 @@ impl ContentType{
         }
         Ok(builder)
     }
-    pub fn get_content_type_if_supported(&self, headers: &HeaderMap) -> Option<&str>{
+    pub fn get_content_type_if_supported(&self, headers: &hyper::HeaderMap) -> Option<&str>{
         if let Some(request_accept) = headers.get_as_string("Accept"){
             let target_value = self.to_str();
             let media_type = self.media_type();
