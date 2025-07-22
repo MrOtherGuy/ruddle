@@ -457,4 +457,32 @@ forward_headers = ["test"]
             _ => panic!("Incorrect")
         }
     }
+    #[test]
+    fn test_resource_headers(){
+        let cli = Cli::parse();
+        let config = config::Config::builder()
+        .add_source(config::File::from_str(
+r#"
+port = 9000
+server_root = "./"
+
+[response_headers.Global]
+x-test-header = "Hello, world!"
+
+[remote_resources.update]
+url = "https://example.com"
+model = "text"
+forward_headers = ["test"]
+headers = { "x-test-header" = "Hello", "x-other" = "You too" }
+"#,
+        config::FileFormat::Toml,
+        ))
+        .build()
+        .unwrap();
+        let settings = Settings::from_config(config,&cli);
+        let headers = &settings.get_command_resource(&RequestCommand::new("update")).request_headers;
+        assert_eq!(headers.contains("x-test-header"),true);
+        assert_eq!(headers.get_as_str("x-other"),Some("You too"));
+        assert_eq!(settings.header_map.get(&content_type::ContentType::Global).unwrap().get("x-test-header").unwrap().to_value_str(),"Hello, world!")
+    }
 }

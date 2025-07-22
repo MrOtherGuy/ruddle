@@ -8,6 +8,7 @@ use hyper_util::{client::legacy::Client, rt::TokioExecutor};
 use crate::models::{RemoteResult,RemoteData,JSONSerializeType,JSONKind};
 use crate::schemers::validator::Validator;
 use crate::settings::resource::{ResourceMethod,RequestCredentials};
+use crate::settings::header::HeaderSet;
 
 pub type ConnectionResult<T> = Result<T, ConnectionError>;
 
@@ -48,6 +49,9 @@ pub async fn request_get_resource(request_init: RequestOptions<'_>) -> Connectio
         Some(cred) => builder.header(&cred.key, &cred.value),
         None => builder
     };
+    for header in request_init.request_headers.headers().iter(){
+        builder = builder.header(header.name().as_str(), header.value().to_value_str());
+    }
     let request = match builder.body(Empty::new()){
         Ok(req) => req,
         Err(_) => return Err(ConnectionError::InvalidRequest)
@@ -112,6 +116,7 @@ pub struct RequestOptions<'a>{
     pub uri: hyper::Uri,
     pub credentials: Option<RequestCredentials>,
     pub method: &'a ResourceMethod,
+    pub request_headers: &'a HeaderSet,
     pub body: Option<Bytes>
 }
 

@@ -12,18 +12,18 @@ resources = [
 writable_resources = [
     "css/thing.txt"
 ]
-[headers.Global]
+[response_headers.Global]
 Server = "Webserver"
 
-[headers."text/html"]
+[response_headers."text/html"]
 Cross-Origin-Opener-Policy = "same-origin"
 Cross-Origin-Embedder-Policy = "credentialless"
 Cross-Origin-Resource-Policy = "cross-origin"
 
-[headers."text/css"]
+[response_headers."text/css"]
 Server = "cssserver"
 
-[headers."application/json"]
+[response_headers."application/json"]
 Access-Control-Allow-Origin = "@Origin"
 Vary = "Origin"
 

@@ -2,7 +2,8 @@
 use std::collections::HashMap;
 use hyper::Response;
 use crate::Settings;
-
+use crate::settings::HeaderValue;
+// Badly named, but this is response headers only
 pub(crate) type HeaderMap = HashMap<ContentType,HashMap<String,HeaderValue>>;
 pub struct MIMEParseError{}
 
@@ -19,13 +20,6 @@ pub enum ContentType{
     ImageICO,
     Unknown,
     Global
-}
-
-#[derive(Debug,Clone)]
-pub enum HeaderValue{
-    Computed(String),
-    Literal(String),
-    ByRequest(String)
 }
 
 #[derive(Debug,Clone)]

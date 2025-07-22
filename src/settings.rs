@@ -5,14 +5,16 @@ use std::collections::{HashSet,HashMap};
 use std::path::Path;
 
 use crate::schemers::{schemaloader::{build_test,SchemaTree},validator::Validator};
-use crate::content_type::{HeaderValue,ContentType,GetHeaderValueString,HeaderMap};
+use crate::content_type::{ContentType,HeaderMap,GetHeaderValueString};
 
+pub(crate) mod header;
 mod pathprovider;
 pub mod resource;
 mod qualifieduri;
 mod credentials;
 pub(crate) mod commandapi;
 
+pub(crate) use header::{HeaderValue,HeaderSet,ParseMode};
 use commandapi::{ServerAPI,CommandAPI,RequestCommand};
 use pathprovider::PathProvider;
 use resource::{ResourceStore,RemoteResource};
@@ -259,35 +261,23 @@ impl Settings<'_>{
 
         };
         
-        let headers : HeaderMap = match config.get_table("headers"){
+        let headers : HeaderMap = match config.get_table("response_headers"){
             Ok(s) => {
+
                 let mut map = HashMap::new();
                 
                 for (key,val) in s.iter(){
                     let mime_type = ContentType::from_mime_type(&key);
-                    match val.clone().into_table(){
-                        Ok(table) => {
-                            let mut inner_map = HashMap::new();
-                            
-                            table.iter().for_each(|(key,val)| match val.clone().into_string(){
-                                Ok(s) => {
-                                    if s == "<auto>".to_string(){
-                                        inner_map.insert(key.clone(), HeaderValue::Computed("TODO".to_string()));
-                                    }else if s.starts_with("@"){
-                                        let mut copy = s.clone();
-                                        copy.remove(0);
-                                        inner_map.insert(key.clone(), HeaderValue::ByRequest(copy));
-                                    }else{
-                                        inner_map.insert(key.clone(), HeaderValue::Literal(s.clone()));
-                                    }
-                                    ()
-                                },
-                                Err(_) => ()
-                            });
+                    match HeaderSet::parse(&val,ParseMode::IgnoreInvalid){
+                        Ok(heads) => {
+                            let inner_map : HashMap<String,HeaderValue> = HashMap::from_iter(heads.into_iter().map(|h| h.into_pair()));
                             map.insert(mime_type,inner_map);
                             ()
                         },
-                        Err(_) => ()
+                        Err(e) => {
+                          eprintln!("{e}");
+                          ()
+                        }
                     }
                 };
                 if let Some(globals) = map.remove(&ContentType::Global){

@@ -90,7 +90,8 @@ pub async fn update_task(conf: &Settings, runtime_mode: RuntimeMode) -> TaskResu
         credentials: creds,
         user_agent: &conf.user_agent,
         method: &ResourceMethod::Get,
-        body: None
+        body: None,
+        request_headers: &resource.request_headers
     };
     let data_kind = match &resource.model{
         RemoteResultType::RemoteJSON(kind) => kind.clone(),

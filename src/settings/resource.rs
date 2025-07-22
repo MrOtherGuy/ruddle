@@ -6,6 +6,7 @@ use crate::schemers::{schemaloader::SchemaTree};
 use std::path::PathBuf;
 use super::qualifieduri::{QueryParams,QualifiedUri};
 use super::credentials::{CredentialsMode,ResourceCredentials};
+use super::header::{Header,HeaderSet,ParseMode};
 
 #[derive(Debug)]
 pub enum ResourceMethod{
@@ -89,7 +90,8 @@ pub struct RemoteResource{
     pub schema: Option<String>,
     pub no_cache: bool,
     pub forward_queries: Option<HashSet<String>>,
-    pub method: ResourceMethod
+    pub method: ResourceMethod,
+    pub request_headers: HeaderSet
 }
 
 
@@ -104,6 +106,12 @@ impl RemoteResource{
             },
             None => Ok(self.uri.uri())
         }
+    }
+    pub fn build_request(&self) -> bool{
+        true
+    }
+    pub fn request_headers(&self) -> &Vec<Header>{
+        self.request_headers.headers()
     }
     pub fn derive_key(&self, key: &str) -> Result<String,ServerConfigError>{
         match &self.credentials {
@@ -225,6 +233,16 @@ fn try_into_remote(conf: &config::Value,disallowed_port: u16, tree: &Option<Sche
                     if !data_model.supports_schema() && schema.is_some(){
                         return Err(ServerConfigError::UnsupportedSchema)
                     }
+                    let request_headers = match table.get("headers"){
+                        Some(s) => match HeaderSet::parse_literals(&s,ParseMode::Strict){
+                            Ok(heads) => heads,
+                            Err(e) => {
+                                eprintln!("{e}");
+                                HeaderSet::new()
+                            }
+                        },
+                        None => HeaderSet::new()
+                    };
                     return Ok(RemoteResource{
                         uri: uri_conversion.unwrap(),
                         method: request_method,
@@ -234,7 +252,8 @@ fn try_into_remote(conf: &config::Value,disallowed_port: u16, tree: &Option<Sche
                         cache: std::sync::OnceLock::new(),
                         no_cache: no_cache,
                         schema: schema,
-                        forward_queries: forward_queries
+                        forward_queries: forward_queries,
+                        request_headers: request_headers
                     });
                 }
                 eprintln!("Resource with invalid url is ignored");

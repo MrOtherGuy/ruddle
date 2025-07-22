@@ -93,7 +93,8 @@ async fn do_command_task(resource : &RemoteResource, conf: &crate::Settings<'_>,
             credentials: creds,
             user_agent: &conf.user_agent,
             method: &resource.method,
-            body: None
+            body: None,
+            request_headers: &resource.request_headers
         },
         ResourceMethod::Post => {
             let body = read_post_body(request).await;
@@ -107,7 +108,8 @@ async fn do_command_task(resource : &RemoteResource, conf: &crate::Settings<'_>,
                 credentials: creds,
                 user_agent: &conf.user_agent,
                 method: &resource.method,
-                body: Some(body.unwrap().into())
+                body: Some(body.unwrap().into()),
+                request_headers: &resource.request_headers
             }
         }
     };
