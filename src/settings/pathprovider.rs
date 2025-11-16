@@ -20,7 +20,7 @@ impl PathProvider<'_>{
     pub fn from_iter<'a>(values: impl Iterator<Item = config::Value>) -> Option<PathProvider<'a>>{
         let mut files : Vec<&str> = vec![];
         let mut dirs: Vec<PathBuf> = vec![];
-        values.for_each(|k| (
+        values.for_each(|k| 
             match k.into_string(){
                 Ok(mut s) => match s.ends_with("/"){
                     true => { s.pop(); dirs.push(PathBuf::from(s).into_iter().fold(PathBuf::new(),|mut buf, x| { buf.push(x); return buf} )) },
@@ -28,7 +28,7 @@ impl PathProvider<'_>{
                 },
                 Err(_) => ()
             }
-        ));
+        );
         match (files.len(), files[0]){
             (1,"/*") => None,
             (_,_) => Some(PathProvider{

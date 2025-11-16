@@ -19,7 +19,9 @@ pub enum ContentType{
     ImageSVG,
     ImageICO,
     Unknown,
-    Global
+    Global,
+    Wasm,
+    Wat
 }
 
 #[derive(Debug,Clone)]
@@ -53,6 +55,8 @@ impl std::str::FromStr for ContentType{
                         ".png" | ".apng" =>  ContentType::ImagePNG,
                         ".svg" => ContentType::ImageSVG,
                         ".ico" => ContentType::ImageICO,
+                        ".wasm" => ContentType::Wasm,
+                        ".wat" => ContentType::Wat,
                         _ => ContentType::Unknown
                     })
                 },
@@ -154,6 +158,8 @@ impl ContentType{
             ContentType::ImageSVG => "image",
             ContentType::ImageICO => "image",
             ContentType::Unknown =>  "application",
+            ContentType::Wasm => "application",
+            ContentType::Wat => "application",
             ContentType::Global => panic!("Global content type must not be stringified!")
         }
     }
@@ -161,6 +167,8 @@ impl ContentType{
         match s{
             "application/javascript" => ContentType::Javascript,
             "application/json" => ContentType::Json,
+            "application/wasm" => ContentType::Wasm,
+            "application/wat" => ContentType::Wat,
             "text/css" => ContentType::CSS,
             "text/html" => ContentType::HTML,
             "text/plain" => ContentType::PlainText,
@@ -176,6 +184,8 @@ impl ContentType{
         match self {
             ContentType::Javascript => "application/javascript",
             ContentType::Json => "application/json",
+            ContentType::Wasm => "application/wasm",
+            ContentType::Wat => "application/wat",
             ContentType::CSS => "text/css",
             ContentType::HTML => "text/html",
             ContentType::PlainText => "text/plain",
