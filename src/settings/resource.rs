@@ -5,8 +5,9 @@ use crate::models::{RemoteResultType,RemoteData};
 use crate::schemers::{schemaloader::SchemaTree};
 use std::path::PathBuf;
 use super::qualifieduri::{QueryParams,QualifiedUri};
-use super::credentials::{CredentialsMode,ResourceCredentials};
+use super::credentials::{ResourceCredentials};
 use super::header::{Header,HeaderSet,ParseMode};
+use crate::httpsconnector::{RequestOptions,ConnectionError};
 
 #[derive(Debug)]
 pub enum ResourceMethod{
@@ -107,8 +108,30 @@ impl RemoteResource{
             None => Ok(self.uri.uri())
         }
     }
-    pub fn build_request(&self) -> bool{
-        true
+    pub fn build_request<'a>(&'a self,user_agent: &'a str, request_query: Option<&str>, body: Option<bytes::Bytes>) -> Result<RequestOptions<'a>,ConnectionError>{
+        let credentials = match self.request_credentials(crate::OBFUSCATION_KEY){
+            Some(res) => match res{
+                Ok(dec) => Some(dec),
+                Err(_) => return Err(ConnectionError::InvalidRequest)
+            },
+            None => None
+        };
+        let uri = match (&self.forward_queries, request_query){
+            (Some(_), Some(query)) => match self.compose_uri(query){
+                Ok(built) => built,
+                Err(_) => return Err(ConnectionError::InvalidRequest)
+            },
+            (_,_) => self.uri.uri().into(),
+        };
+        //println!("{:?}",&self.request_headers);
+        Ok(RequestOptions{
+            uri,
+            credentials,
+            user_agent,
+            body,
+            method: &self.method,
+            request_headers: &self.request_headers
+        })
     }
     pub fn request_headers(&self) -> &Vec<Header>{
         self.request_headers.headers()
@@ -121,15 +144,9 @@ impl RemoteResource{
     }
     pub fn request_credentials(&self, key: &str) -> Option<Result<RequestCredentials,ServerConfigError>>{
         match &self.credentials{
-            Some(c) => match &c.mode{
-                CredentialsMode::Plain => match String::from_utf8(c.key().clone()){
-                    Ok(s) => Some(Ok(RequestCredentials{ key: c.header.clone(), value: s})),
-                    Err(_) => Some(Err(ServerConfigError::DecodeError))
-                },
-                CredentialsMode::Encoded => match c.derive_key(key) {
-                    Ok(key) => Some(Ok(RequestCredentials{ key: c.header.clone(), value: key })),
-                    Err(_) => Some(Err(ServerConfigError::DecodeError))
-                }
+            Some(c) => match c.derive_key(key){
+                Ok(s) => Some(Ok(RequestCredentials{ key: c.header().to_string(), value: s})),
+                Err(_) => Some(Err(ServerConfigError::DecodeError))
             },
             None => None
         }
@@ -161,15 +178,18 @@ fn try_into_remote(conf: &config::Value,disallowed_port: u16, tree: &Option<Sche
                 let uri_conversion = QualifiedUri::try_build(url_string,disallowed_port);
                 if uri_conversion.is_ok(){
 
-                    let creds = match ResourceCredentials::try_parse(&table){
-                        Ok(cred) => Some(cred),
-                        Err(e) => {
-                            println!("{}",e);
-                            match e {
-                                ServerConfigError::InvalidValue => return Err(ServerConfigError::MissingKey),
-                                _ => None
-                            }
-                        }
+                    let creds = match table.get("credentials"){
+                        Some(cred) => match ResourceCredentials::try_parse(&cred){
+                            Ok(cred) => Some(cred),
+                            Err(e) => {
+                                println!("{}",e);
+                                match e {
+                                    ServerConfigError::InvalidValue => return Err(ServerConfigError::MissingKey),
+                                    _ => None
+                                }
+                            }   
+                        },
+                        None => None
                     };
                     
                     let write_target = match table.try_parse_string("file_target"){

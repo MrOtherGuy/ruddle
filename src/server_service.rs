@@ -9,7 +9,7 @@ use tokio_util::io::ReaderStream;
 use crate::settings::resource::{RemoteResource,ResourceMethod};
 use crate::settings::commandapi::ServerAPI;
 use crate::SERVER_CONF;
-use crate::httpsconnector::{RequestOptions,request_optionally_validated_json,ConnectionError};
+use crate::httpsconnector::{request_optionally_validated_json,ConnectionError};
 use crate::post_api::read_post_body;
 use crate::models::{RemoteResultType,RemoteData};
 use crate::service_response::ServiceResponse;
@@ -69,48 +69,24 @@ async fn do_command_task(resource : &RemoteResource, conf: &crate::Settings<'_>,
         },
         None => ()
     };
-    let creds = match resource.request_credentials("2.718281828459045"){
-        Some(res) => match res{
-            Ok(dec) => Some(dec),
-            Err(_) => return Err(ConnectionError::InvalidRequest)
-        },
-        None => None
-    };
-    let built_uri = match (&resource.forward_queries, request.uri().query()){
-        (Some(_), Some(request_query)) => match resource.compose_uri(request_query){
-            Ok(built) => built,
-            Err(_) => return Err(ConnectionError::InvalidRequest)
-        },
-        (_,_) => resource.uri.uri().into(),
-    };
     let data_kind = match &resource.model{
         RemoteResultType::RemoteJSON(kind) => kind.clone(),
         _ => return Err(ConnectionError::NotSupported)
     };
     let request_init = match resource.method{
-        ResourceMethod::Get => RequestOptions{
-            uri: built_uri,
-            credentials: creds,
-            user_agent: &conf.user_agent,
-            method: &resource.method,
-            body: None,
-            request_headers: &resource.request_headers
-        },
+        ResourceMethod::Get => resource.build_request(conf.user_agent.as_str(), request.uri().query(),None)?,
         ResourceMethod::Post => {
+            let query = match request.uri().query(){
+                Some(s) => Some(s.to_owned()),
+                None => None
+            };
             let body = read_post_body(request).await;
             if let Err(e) = body{
                 eprintln!("{e}");
                 return Err(ConnectionError::InvalidRequest)
             }
             // Should maybe check against schema or something
-            RequestOptions{
-                uri: built_uri,
-                credentials: creds,
-                user_agent: &conf.user_agent,
-                method: &resource.method,
-                body: Some(body.unwrap().into()),
-                request_headers: &resource.request_headers
-            }
+            resource.build_request(conf.user_agent.as_str(), query.as_deref(),Some(body.unwrap().into()))?
         }
     };
 

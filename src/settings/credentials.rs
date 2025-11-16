@@ -12,25 +12,39 @@ pub enum CredentialsMode{
 #[derive(Debug,Clone)]
 pub struct ResourceCredentials{
     key: Vec<u8>,
-    pub header: String,
-    pub mode: CredentialsMode
+    header: String,
+    mode: CredentialsMode
 }
 
 impl ResourceCredentials{
     pub fn derive_key(&self,key: &str) -> Result<String,ServerConfigError>{
-        match cryptea::decode(&self.key,key){
-            Ok(s) => Ok(s),
-            Err(e) => {
-                println!("{}",e);
-                Err(ServerConfigError::DecodeError)
+        match self.mode{
+            CredentialsMode::Plain => match String::from_utf8(self.key.clone()){
+                Ok(s) => Ok(s),
+                Err(_) => Err(ServerConfigError::DecodeError)
+            },
+            CredentialsMode::Encoded => match cryptea::decode(&self.key,key){
+                Ok(s) => Ok(s),
+                Err(e) => {
+                    println!("{e}");
+                    Err(ServerConfigError::DecodeError)
+                }
             }
         }
+
     }
-    pub fn key(&self) -> &Vec<u8>{
-        &self.key
+    pub fn header(&self) -> &str{
+        &self.header
     }
-    pub fn try_parse(table: &config::Map<String, config::Value>) -> Result<Self,ServerConfigError>{
-        let resource_key = match table.try_parse_string("key_value"){
+    pub fn try_parse(input: &config::Value) -> Result<Self,ServerConfigError>{
+        let table = match input.clone().into_table(){
+            Ok(table) => table,
+            Err(e) => {
+                eprintln!("{e}");
+                return Err(ServerConfigError::InvalidValue)
+            }
+        };
+        let resource_key = match table.try_parse_string("value"){
             Ok(k) => {
                 let s : Option<Vec<u8>> = match k.as_bytes().try_into(){
                     Ok(slice) => Some(slice),
@@ -43,7 +57,7 @@ impl ResourceCredentials{
         if resource_key.is_none(){
             return Err(ServerConfigError::NotAvailable)
         }
-        let resource_header = match table.try_parse_string("key_header"){
+        let resource_header = match table.try_parse_string("header"){
             Ok(k) => {
                 match k.len() > 4 && k.len() < 50 { // arbitrary restriction for header length
                   true => Some(k),
@@ -52,7 +66,7 @@ impl ResourceCredentials{
             },
             Err(_) => None
         };
-        let key_mode = match table.try_parse_string("key_mode"){
+        let key_mode = match table.try_parse_string("mode"){
             Ok(k) => {
                 match k.as_str(){
                     "plain" => CredentialsMode::Plain,

@@ -40,9 +40,9 @@ impl std::fmt::Display for ConnectionError {
     }
 }
 
-pub async fn request_get_resource(request_init: RequestOptions<'_>) -> ConnectionResult<Collected<bytes::Bytes>>{
+fn request_builder(request_init: &RequestOptions<'_>,method: hyper::Method) -> http::request::Builder{
     let mut builder = Request::builder()
-        .method(hyper::Method::GET)
+        .method(method)
         .uri(request_init.uri.clone())
         .header("User-Agent",request_init.user_agent);
     builder = match &request_init.credentials{
@@ -52,7 +52,11 @@ pub async fn request_get_resource(request_init: RequestOptions<'_>) -> Connectio
     for header in request_init.request_headers.headers().iter(){
         builder = builder.header(header.name().as_str(), header.value().to_value_str());
     }
-    let request = match builder.body(Empty::new()){
+    builder
+}
+
+pub async fn request_get_resource(request_init: RequestOptions<'_>) -> ConnectionResult<Collected<bytes::Bytes>>{
+    let request = match request_builder(&request_init, hyper::Method::GET).body(Empty::new()){
         Ok(req) => req,
         Err(_) => return Err(ConnectionError::InvalidRequest)
     };
@@ -78,15 +82,7 @@ pub async fn request_get_resource(request_init: RequestOptions<'_>) -> Connectio
 }
 
 pub async fn request_post_resource(request_init: RequestOptions<'_>) -> ConnectionResult<Collected<bytes::Bytes>>{
-    let mut builder = Request::builder()
-        .method(hyper::Method::POST)
-        .uri(request_init.uri.clone())
-        .header("User-Agent",request_init.user_agent);
-    builder = match &request_init.credentials{
-        Some(cred) => builder.header(&cred.key, &cred.value),
-        None => builder
-    };
-    let request = match builder.body(Full::new(request_init.bytes())){
+    let request = match request_builder(&request_init, hyper::Method::POST).body(Full::new(request_init.bytes())){
         Ok(req) => req,
         Err(_) => return Err(ConnectionError::InvalidRequest)
     };
@@ -112,7 +108,7 @@ pub async fn request_post_resource(request_init: RequestOptions<'_>) -> Connecti
 }
 
 pub struct RequestOptions<'a>{
-    pub user_agent: &'a String,
+    pub user_agent: &'a str,
     pub uri: hyper::Uri,
     pub credentials: Option<RequestCredentials>,
     pub method: &'a ResourceMethod,
@@ -156,8 +152,6 @@ pub async fn request_optionally_validated_json(request_init: RequestOptions<'_>,
         }
     }
 }
-
-
 
 pub async fn request_json(request_init: RequestOptions<'_>) -> ConnectionResult<Collected<Bytes>>{
     
