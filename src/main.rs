@@ -19,6 +19,7 @@ mod support;
 use settings::Settings;
 
 static SERVER_CONF : OnceLock<Settings> = OnceLock::new();
+const OBFUSCATION_KEY : &str = "2.71828182845904"; 
 
 #[derive(Parser,Clone)]
 #[command(version, about, long_about = None)]
@@ -158,7 +159,7 @@ pub fn main() -> () {
         },
         Commands::Encode(args) => {
             println!("Running 'Encode task'");
-            let text = crate::support::cryptea::encode_as_base64(&args.source,&args.key.unwrap_or("2.71828182845904".to_string())).unwrap();
+            let text = crate::support::cryptea::encode_as_base64(&args.source,&args.key.unwrap_or(OBFUSCATION_KEY.to_string())).unwrap();
             println!("{}",text);
             ()
         },
@@ -190,8 +191,8 @@ resources = [
 [remote_resources]
 bad = { url = ":example.com" }
 disallowed = { url = "http://localhost:50242" }
-thing = { url = "http://localhost", key_value = "eVz3/UsDq0w2nTXr89lDG20fd4bEWHiQAPIoSogQIqBhLtfX", key_header = "custom-header" }
-missing = { url = "http://example.com", key_value = "eVz3/UsDq0w2nTXr89lDG20fd4bEWHiQAPIoSogQIqBhLtfX" }
+thing = { url = "http://localhost", credentials = { value = "eVz3/UsDq0w2nTXr89lDG20fd4bEWHiQAPIoSogQIqBhLtfX", header = "custom-header" } }
+missing = { url = "http://example.com", credentials = { value = "eVz3/UsDq0w2nTXr89lDG20fd4bEWHiQAPIoSogQIqBhLtfX" } }
 "#,
     config::FileFormat::Toml,
     ))
@@ -212,7 +213,8 @@ mod tests {
         let cli = Cli::parse();
         let config = build_test_config();
         let settings = Settings::from_config(config,&cli);
-        match settings.get_command_resource(&RequestCommand::new("thing")).derive_key("2.71828182845904"){
+        let resource = settings.get_command_resource(&RequestCommand::new("thing"));
+        match resource.derive_key(OBFUSCATION_KEY){
             Ok(k) => assert_eq!(k,"Hello! This is my custom value here."),
             Err(_) => panic!("Decode key mismatch")
         }
@@ -267,7 +269,7 @@ mod tests {
         let cli = Cli::parse();
         let config = build_test_config();
         let settings = Settings::from_config(config,&cli);
-        match settings.get_command_resource(&RequestCommand::new("missing")).derive_key("2.71828182845904"){
+        match settings.get_command_resource(&RequestCommand::new("missing")).derive_key(OBFUSCATION_KEY){
             Ok(_) => panic!("Key decoding should have failed"),
             Err(e) => match e {
                 settings::ServerConfigError::NotAvailable => (),
