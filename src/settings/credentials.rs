@@ -1,5 +1,5 @@
 #![deny(warnings)]
-use super::{resource::TryParseStringValue};
+use super::{resource::TryParseTypedValue};
 use crate::settings::ServerConfigError;
 use crate::support::cryptea;
 

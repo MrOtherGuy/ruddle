@@ -65,15 +65,53 @@ impl WriteTarget{
     }
 }
 
-pub trait TryParseStringValue{
+#[allow(unused)]
+pub trait TryParseTypedValue{
     fn try_parse_string(&self,key : &str) -> Result<String,ServerConfigError>;
+    fn try_parse_u64(&self, key: &str) -> Result<u64,ServerConfigError>;
+    fn try_parse_u16(&self, key: &str) -> Result<u16,ServerConfigError>;
+    fn try_parse_bool(&self, key: &str) -> Result<bool,ServerConfigError>;
 }
 
-impl TryParseStringValue for config::Map<String, config::Value>{
+
+impl TryParseTypedValue for config::Map<String, config::Value>{
     fn try_parse_string(&self,key : &str) -> Result<String,ServerConfigError>{
         match self.get(key){
             Some(value) => match value.clone().into_string(){
                 Ok(k) => Ok(k),
+                Err(_) => Err(ServerConfigError::InvalidValue)
+            },
+            None => Err(ServerConfigError::MissingKey)
+        }
+    }
+    fn try_parse_bool(&self, key: &str) -> Result<bool,ServerConfigError>{
+        match self.get(key){
+            Some(value) => match value.clone().into_bool(){
+                Ok(k) => Ok(k),
+                Err(_) => Err(ServerConfigError::InvalidValue)
+            },
+            None => Err(ServerConfigError::MissingKey)
+        }
+    }
+    fn try_parse_u64(&self, key: &str) -> Result<u64,ServerConfigError>{
+        match self.get(key){
+            Some(value) => match value.clone().into_uint(){
+                Ok(k) => Ok(k),
+                Err(_) => Err(ServerConfigError::InvalidValue)
+            },
+            None => Err(ServerConfigError::MissingKey)
+        }
+    }
+    fn try_parse_u16(&self, key: &str) -> Result<u16,ServerConfigError>{
+        match self.get(key){
+            Some(value) => match value.clone().into_uint(){
+                Ok(k) => {
+                    let u : u16 = match k.try_into(){
+                        Ok(v) => v,
+                        Err(_) => return Err(ServerConfigError::InvalidValue)
+                    };
+                    Ok(u)
+                },
                 Err(_) => Err(ServerConfigError::InvalidValue)
             },
             None => Err(ServerConfigError::MissingKey)

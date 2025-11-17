@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use crate::server_service::HyperResult;
 use crate::settings::{ServerConfigError,parse_config_string_table,merge_string_maps};
-use super::resource::{RemoteResource,TryParseStringValue};
+use super::resource::{RemoteResource,TryParseTypedValue};
 use crate::content_type::{GetHeaderValueString};
 use hyper::{StatusCode,Response};
 

@@ -4,6 +4,7 @@ use config::Config;
 use std::collections::{HashSet,HashMap};
 use std::path::Path;
 
+use crate::Commands;
 use crate::schemers::{schemaloader::{build_test,SchemaTree},validator::Validator};
 use crate::content_type::{ContentType,HeaderMap,GetHeaderValueString};
 
@@ -17,7 +18,7 @@ pub(crate) mod commandapi;
 pub(crate) use header::{HeaderValue,HeaderSet,ParseMode};
 use commandapi::{ServerAPI,CommandAPI,RequestCommand};
 use pathprovider::PathProvider;
-use resource::{ResourceStore,RemoteResource};
+use resource::{ResourceStore,RemoteResource,TryParseTypedValue};
 
 pub type ServerConfigResult<T> = Result<T, ServerConfigError>;
 impl std::fmt::Display for ServerConfigError {
@@ -58,6 +59,71 @@ pub enum ServerConfigError{
     NoSchemaSource
 }
 
+pub struct WebviewOptions{
+    pub width: u16,
+    pub height: u16,
+    pub title: String,
+    pub show_console: bool
+}
+
+impl Default for WebviewOptions{
+    fn default() -> Self{
+        WebviewOptions{ width: 960, height: 640, title: "Rusty-labels".to_string() , show_console: false }
+    } 
+}
+pub enum RuntimeMode{
+    Headless,
+    Normal,
+    Webview(WebviewOptions)
+}
+
+impl WebviewOptions{
+    fn from_config_and_cli(config: &Config, cli: crate::WebviewArgs) -> Self{
+        match config.get_table("webview"){
+            Ok(table) => {
+                let width = match (cli.width,table.try_parse_u16("width")){
+                    (Some(a),_) => Some(a),
+                    (None,Ok(w)) => if w > 100 && w < 3000{
+                        Some(w)
+                    }else{
+                        None
+                    },
+                    (None,Err(_)) => None
+                };
+                let height = match (cli.height,table.try_parse_u16("height")){
+                    (Some(a),_) => Some(a),
+                    (None,Ok(w)) => if w > 100 && w < 3000{
+                        Some(w)
+                    }else{
+                        None
+                    },
+                    (None,Err(_)) => None
+                };
+                let title = match (cli.title,table.try_parse_string("title")){
+                    (Some(t),_) => t,
+                    (None,Ok(title)) => title,
+                    (None,Err(_)) => "Rusty-labels".to_string()
+                };
+                let show_console = match (cli.show_console,table.try_parse_bool("show_console")){
+                    (true,_) => true,
+                    (false,Ok(a)) => a,
+                    (false,Err(_)) => false
+                };
+                match (width,height){
+                    (Some(width),Some(height)) => WebviewOptions{ width, height, title, show_console },
+                    (_,_) => WebviewOptions::default()
+                }
+            },
+            Err(_) => WebviewOptions{
+                width: cli.width.unwrap_or(960),
+                height: cli.height.unwrap_or(640),
+                title: cli.title.unwrap_or("Rusty-labels".to_string()),
+                show_console: cli.show_console
+            }
+        }
+    }
+}
+
 pub(crate) fn parse_config_string_table(config : &HashMap<String, config::Value>, table_name: &str) -> Option<HashMap<String,String>>{
     match config.get(table_name){
         Some(t) => match t.clone().into_table(){
@@ -88,9 +154,10 @@ pub(crate) fn merge_string_maps(mut owned: HashMap<String,String>, ref_map: &Has
     owned
 }
 
-#[derive(Debug)]
 pub struct Settings<'a>{
     pub port: u16,
+    pub run_mode: RuntimeMode,
+    pub subcommand: Option<Commands>,
     pub server_root: String,
     pub start_in: Option<String>,
     pub resources: Option<PathProvider<'a>>,
@@ -120,6 +187,12 @@ impl Settings<'_>{
             return true
         }
         return true
+    }
+    pub fn has_console(&self) -> bool{
+        match &self.run_mode{
+            RuntimeMode::Webview(opts) => opts.show_console,
+            _ => true
+        }
     }
     pub fn can_read_resource(&self, path: &str) -> bool{
         match &self.resources{
@@ -171,8 +244,32 @@ impl Settings<'_>{
         };
         commands.post_api(resource_name)
     }
-    pub fn from_config(config: Config, cli: &crate::Cli) -> Settings<'static>{
-        
+    pub fn from_config(config: Config, cli: crate::Cli) -> Settings<'static>{
+        let port_number = match cli.port{
+            Some(p) => p,
+            None => config.get::<u16>("port").unwrap_or(8080)
+        };
+        let run_mode = match &cli.command{
+            Some(c) => {
+                let options = match c{
+                    Commands::Webview(a) => WebviewOptions::from_config_and_cli(&config, a.clone()),
+                    _ => WebviewOptions::from_config_and_cli(&config,crate::WebviewArgs::empty())
+                };
+                RuntimeMode::Webview(options)
+            },
+            None => match config.get::<String>("run_mode"){
+                Ok(s) => match s.as_str(){
+                    "headless" => RuntimeMode::Headless,
+                    "webview" => {
+                        let options = WebviewOptions::from_config_and_cli(&config,crate::WebviewArgs::empty());
+                        RuntimeMode::Webview(options)
+                    },
+                    _ => RuntimeMode::Normal
+                },
+                Err(_) => RuntimeMode::Normal
+            }
+
+        };
         let start_in = match &cli.start_in {
             Some(s) => Some(s.clone()),
             None => match config.get::<String>("start_in"){
@@ -227,10 +324,8 @@ impl Settings<'_>{
                 None
             }
         };
-        let port_number = match cli.port{
-            Some(p) => p,
-            None => config.get::<u16>("port").unwrap_or(8080)
-        };
+        
+        
         let api_requirements : Option<HashMap<String,String>> = match config.get_table("api_required_headers"){
             Ok(table) => match table.is_empty(){
                 true => None,
@@ -312,11 +407,13 @@ impl Settings<'_>{
             remote_resources: remote_store,
             header_map: headers,
             schema_tree: schema_source,
-            commands: commands,
-            api_required_headers: api_requirements
+            commands,
+            api_required_headers: api_requirements,
+            run_mode,
+            subcommand: cli.command
         }
     }
-    pub fn from_file(filename: &Path,cli: &crate::Cli) -> ServerConfigResult<Settings<'static>>{
+    pub fn from_file(filename: &Path,cli: crate::Cli) -> ServerConfigResult<Settings<'static>>{
         let config_file = Config::builder()
         // Add in `./Settings.toml`
         .add_source(config::File::with_name(match filename.to_str(){

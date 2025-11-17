@@ -34,9 +34,6 @@ pub(crate) struct Cli {
     #[arg(long)]
     start_in: Option<String>,
 
-    #[arg(long)]
-    no_console: bool,
-
     #[arg(short, long)]
     debug: bool,
 
@@ -60,16 +57,24 @@ struct EncodeArgs {
 
 #[derive(Args, Debug,Clone)]
 pub(crate) struct WebviewArgs {
-   #[arg(long,default_value_t = 960)]
-   width: u16,
-   #[arg(long,default_value_t = 640)]
-   height: u16,
    #[arg(long)]
-   title: Option<String>
+   pub(crate) width: Option<u16>,
+   #[arg(long)]
+   pub(crate) height: Option<u16>,
+   #[arg(long)]
+   pub(crate) title: Option<String>,
+   #[arg(long)]
+   pub(crate) show_console: bool
+}
+
+impl WebviewArgs{
+    fn empty() -> Self{
+        WebviewArgs{ width: None, height: None, title: None, show_console: false }
+    }
 }
 
 #[derive(Subcommand,Clone)]
-enum Commands {
+pub(crate) enum Commands {
     /// Updates product list
     Update,
     /// Intentionally crashes the application
@@ -83,6 +88,7 @@ enum Commands {
 }
 
 fn build_config(cli: Cli) -> Settings<'static>{
+    
     if cli.fast {
         let c = config::Config::builder()
         .add_source(config::File::from_str(
@@ -95,14 +101,15 @@ resources = ["*"]
         ))
         .build()
         .unwrap();
-        return Settings::from_config(c,&cli)
+        return Settings::from_config(c,cli)
     }
-    let binding = PathBuf::from("./Settings.toml");
-    let config_file = match cli.config.as_deref(){
+    let binding = PathBuf::from("./settings.toml");
+    let conf_clone = cli.config.clone();
+    let config_file = match conf_clone.as_deref(){
         Some(file) => file,
         None => binding.as_path()
     };
-    match Settings::from_file(config_file,&cli){
+    match Settings::from_file(config_file,cli){
         Ok(c) => c,
         Err(e) => {
             println!("{}",e);
@@ -111,41 +118,29 @@ resources = ["*"]
     }
 }
 
-pub(crate) enum RuntimeMode{
-    Headless,
-    Normal,
-    Webview(WebviewArgs)
-}
-
-//#[tokio::main]
 pub fn main() -> () {
     
     let cli = Cli::parse();
     
-    if cli.no_console{
-        hide_console::hide_console();
+    let config = build_config(cli);
+
+    if !config.has_console(){
+        hide_console::hide_console()
     }
-    
-    let config = build_config(cli.clone());
     let conf = SERVER_CONF.get_or_init(|| config);
-    let comm = match cli.command{
+    
+    let command = match &conf.subcommand{
         Some(c) => c,
-        None => Commands::Start
+        None => &Commands::Start
     };
-    let mode = match comm {
-        Commands::Webview(ref args) => RuntimeMode::Webview(args.clone()),
-        _ => match cli.silent {
-            true => RuntimeMode::Headless,
-            false => RuntimeMode::Normal
-        }
-    };
-    match comm {
+
+    match command {
         Commands::Crash => {
             panic!("Running 'crash' task");
         },
         Commands::Update => {
             println!("Running 'update' task");
-            match server::update_task(&conf,mode){
+            match server::update_task(&conf){
                 Ok(result) => {
                     print!("Data bytes: {:?}",result.data().unwrap().data_bytes().len())
                 },
@@ -154,18 +149,18 @@ pub fn main() -> () {
         },
         Commands::Start => {
             println!("Running 'start' task");
-            server::start_server(&conf,mode).expect("Server failed");
+            server::start_server(&conf).expect("Server failed");
             ()
         },
         Commands::Encode(args) => {
             println!("Running 'Encode task'");
-            let text = crate::support::cryptea::encode_as_base64(&args.source,&args.key.unwrap_or(OBFUSCATION_KEY.to_string())).unwrap();
+            let text = crate::support::cryptea::encode_as_base64(&args.source,&args.key.clone().unwrap_or(OBFUSCATION_KEY.to_string())).unwrap();
             println!("{}",text);
             ()
         },
         Commands::Webview(_) => {
             println!("Running with webview");
-            server::start_server(&conf,mode).expect("Server failed");
+            server::start_server(&conf).expect("Server failed");
             
             ()
         }
@@ -212,7 +207,7 @@ mod tests {
     fn good_uri() {
         let cli = Cli::parse();
         let config = build_test_config();
-        let settings = Settings::from_config(config,&cli);
+        let settings = Settings::from_config(config,cli);
         let resource = settings.get_command_resource(&RequestCommand::new("thing"));
         match resource.derive_key(OBFUSCATION_KEY){
             Ok(k) => assert_eq!(k,"Hello! This is my custom value here."),
@@ -268,7 +263,7 @@ mod tests {
     fn partial_credentials() {
         let cli = Cli::parse();
         let config = build_test_config();
-        let settings = Settings::from_config(config,&cli);
+        let settings = Settings::from_config(config,cli);
         match settings.get_command_resource(&RequestCommand::new("missing")).derive_key(OBFUSCATION_KEY){
             Ok(_) => panic!("Key decoding should have failed"),
             Err(e) => match e {
@@ -292,14 +287,14 @@ server_root = "./api"
         ))
         .build()
         .unwrap();
-        let _ = Settings::from_config(config,&cli);
+        let _ = Settings::from_config(config,cli);
         ()
     }
     #[test]
     fn bad_uri() {
         let cli = Cli::parse();
         let config = build_test_config();
-        let settings = Settings::from_config(config,&cli);
+        let settings = Settings::from_config(config,cli);
         match settings.get_api("bad",){
             Some(_k) => panic!("This shouldn't exist"),
             None => ()
@@ -309,7 +304,7 @@ server_root = "./api"
     fn disallowed_uri() {
         let cli = Cli::parse();
         let config = build_test_config();
-        let settings = Settings::from_config(config,&cli);
+        let settings = Settings::from_config(config,cli);
         match settings.get_api("disallowed"){
             Some(_k) => panic!("This shouldn't exist"),
             None => ()
@@ -319,7 +314,7 @@ server_root = "./api"
     fn bad_key() {
         let cli = Cli::parse();
         let config = build_test_config();
-        let settings = Settings::from_config(config,&cli);
+        let settings = Settings::from_config(config,cli);
         match settings.get_command_resource(&RequestCommand::new("thing")).derive_key("2.71828182845905"){
             Ok(_) => panic!("Decoding with known bad key succeeded"),
             Err(_) => println!("DecodeError as expected")
@@ -329,7 +324,7 @@ server_root = "./api"
     fn unknown_table() {
         let cli = Cli::parse();
         let config = build_test_config();
-        let settings = Settings::from_config(config,&cli);
+        let settings = Settings::from_config(config,cli);
         match settings.get_api("unknown"){
             Some(_) => panic!("Decoding with known bad key succeeded"),
             None => ()
@@ -339,7 +334,7 @@ server_root = "./api"
     fn resource_found() {
         let cli = Cli::parse();
         let config = build_test_config();
-        let settings = Settings::from_config(config,&cli);
+        let settings = Settings::from_config(config,cli);
         let resources = settings.resources.unwrap();
         assert!(resources.contains_path("/index.html"));
         assert!(resources.contains_path("/css/main.css"));
@@ -350,7 +345,7 @@ server_root = "./api"
     fn resource_not_found() {
         let cli = Cli::parse();
         let config = build_test_config();
-        let settings = Settings::from_config(config,&cli);
+        let settings = Settings::from_config(config,cli);
         let resources = settings.resources.unwrap();
         assert_eq!(resources.contains_path("/not_there.html"),false);
         assert_eq!(resources.contains_path("/js/test.js"),false);
@@ -370,7 +365,7 @@ resources = ["*"]
         ))
         .build()
         .unwrap();
-        let settings = Settings::from_config(config,&cli);
+        let settings = Settings::from_config(config,cli);
         assert!(settings.resources.is_none())
     }
 
@@ -392,7 +387,7 @@ model = "text"
         ))
         .build()
         .unwrap();
-        let settings = Settings::from_config(config,&cli);
+        let settings = Settings::from_config(config,cli);
         match settings.get_command_resource(&RequestCommand::new("update")).model{
             crate::models::RemoteResultType::RemoteTXT => (),
             _ => panic!("Incorrect RemoteBytes")
@@ -419,7 +414,7 @@ request_method = "get"
         ))
         .build()
         .unwrap();
-        let settings = Settings::from_config(config,&cli);
+        let settings = Settings::from_config(config,cli);
         let tested_json = r#"{
 "RequiredTest":[
 {"test_code":"hello", "test_float": 4.5, "test_int": 1, "test_number": 32465476, "additional": "test"},
@@ -453,7 +448,7 @@ forward_headers = ["test"]
         ))
         .build()
         .unwrap();
-        let settings = Settings::from_config(config,&cli);
+        let settings = Settings::from_config(config,cli);
         match settings.get_command_resource(&RequestCommand::new("update")).model{
             crate::models::RemoteResultType::RemoteTXT => (),
             _ => panic!("Incorrect")
@@ -481,7 +476,7 @@ headers = { "x-test-header" = "Hello", "x-other" = "You too" }
         ))
         .build()
         .unwrap();
-        let settings = Settings::from_config(config,&cli);
+        let settings = Settings::from_config(config,cli);
         let headers = &settings.get_command_resource(&RequestCommand::new("update")).request_headers;
         assert_eq!(headers.contains("x-test-header"),true);
         assert_eq!(headers.get_as_str("x-other"),Some("You too"));

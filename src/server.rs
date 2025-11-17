@@ -12,12 +12,11 @@ use tokio_util::sync::CancellationToken;
 // on that here because it would be a cyclical dependency.
 use crate::support::{TokioIo, TokioTimer};
 
-use crate::settings::{Settings,resource::ResourceMethod};
+use crate::settings::{Settings,RuntimeMode,resource::ResourceMethod};
 use crate::service_response::ServiceResponse;
 use crate::server_service::ServerCommand;
 use crate::httpsconnector::{RequestOptions,request_optionally_validated_json};
 use crate::models::{RemoteData,RemoteResultType};
-use crate::RuntimeMode;
 
 pub type TaskResult = Result<TaskInfo, TaskError>;
 
@@ -71,7 +70,7 @@ async fn shutdown_signal(token: CancellationToken) {
 }
 
 #[tokio::main]
-pub async fn update_task(conf: &Settings, runtime_mode: RuntimeMode) -> TaskResult{
+pub async fn update_task(conf: &Settings) -> TaskResult{
     use crate::settings::commandapi::RequestCommand;
     let command = RequestCommand::new("update");
     let resource = match conf.maybe_panics_get_command_resource(&command) {
@@ -100,7 +99,7 @@ pub async fn update_task(conf: &Settings, runtime_mode: RuntimeMode) -> TaskResu
     let result = match request_optionally_validated_json(request_init, data_kind, conf.get_schema(&resource.schema)).await{
         Ok(r) => match &resource.target{
             Some(res) => {
-                match runtime_mode{
+                match conf.run_mode{
                     RuntimeMode::Normal => match res.write_file(&r).await{
                         Ok(_) => println!("file saved!"),
                         Err(e) => {
@@ -123,7 +122,7 @@ pub async fn update_task(conf: &Settings, runtime_mode: RuntimeMode) -> TaskResu
 }
 
 #[tokio::main]
-pub async fn start_server(conf: &Settings,runtime_mode: RuntimeMode) -> TaskResult {
+pub async fn start_server(conf: &Settings) -> TaskResult {
     match conf.resources {
         None => println!("Server hosting content at './'"),
         Some(_) => println!("Server hosting content at './{}/'",conf.server_root)
@@ -147,7 +146,7 @@ pub async fn start_server(conf: &Settings,runtime_mode: RuntimeMode) -> TaskResu
     let mut signal = std::pin::pin!(shutdown_signal(token.clone()));
     
     
-    match runtime_mode {
+    match &conf.run_mode {
         RuntimeMode::Headless => (),
         RuntimeMode::Webview(args) => {
             let token_clone = token.clone();
@@ -169,7 +168,7 @@ pub async fn start_server(conf: &Settings,runtime_mode: RuntimeMode) -> TaskResu
             };
             let width_str : String = args.width.to_string();
             let height_str : String = args.height.to_string();
-
+            let title_str : String = args.title.clone();
             tokio::spawn(async move {
                 
                 let mut child = match std::process::Command::new(exe_path.into_os_string())
@@ -180,7 +179,7 @@ pub async fn start_server(conf: &Settings,runtime_mode: RuntimeMode) -> TaskResu
                     .arg("--height")
                     .arg(height_str)
                     .arg("--title")
-                    .arg(args.title.unwrap_or("Rusty webview".to_string()))
+                    .arg(title_str)
                     .spawn(){
                         Ok(c) => c,
                         Err(e) => panic!("Failed to spawn webview-host: {e}")
