@@ -111,4 +111,10 @@ impl ServiceResponse<'_>{
         .body(Empty::new().map_err(|e| match e {}).boxed())
         .unwrap())
     }
+    pub fn internal_server_error() -> HyperResult {
+        Ok(Response::builder()
+        .status(StatusCode::INTERNAL_SERVER_ERROR)
+        .body(Empty::new().map_err(|e| match e {}).boxed())
+        .unwrap())
+    }
 }

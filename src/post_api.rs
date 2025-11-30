@@ -1,9 +1,11 @@
 #![deny(warnings)]
+
 use hyper::{Request,Method,StatusCode,Response};
 use hyper::body::Body;
 use crate::service_response::ServiceResponse;
 use crate::server_service::HyperResult;
 use crate::models::{RemoteResult,JSONKind};
+use crate::support::serialport::{enumerate_available_ports,SerialPortError,SerialPortData};
 use http_body_util::{BodyExt, Full};
 
 pub async fn handle_post_api( req: Request<hyper::body::Incoming>) -> HyperResult {
@@ -18,8 +20,51 @@ pub async fn handle_post_api( req: Request<hyper::body::Incoming>) -> HyperResul
         (&Method::POST, "/api/test") => test_post_api_response().await,
         (&Method::POST, "/api/post") => post_api_response(req).await,
         (&Method::POST, "/api/save") => try_save_data(req).await,
+        (&Method::POST, "/api/serialports") => enumerate_serial_ports(req).await,
+        (&Method::POST, "/api/serial") => write_to_serialport(req).await,
         _ => ServiceResponse::bad_request(),
     }
+}
+
+async fn write_to_serialport(req: Request<hyper::body::Incoming>) -> HyperResult{
+    let body = match read_post_body(req).await{
+        Ok(bytes) => bytes,
+        Err(e) => {
+            eprintln!("{}",e);
+            return ServiceResponse::bad_request()
+        }
+    };
+    let info = match SerialPortData::try_from_bytes(body){
+        Ok(info) => info,
+        Err(e) => {
+            eprintln!("{}",e);
+            return ServiceResponse::bad_request()
+        }
+    };
+    match info.write(){
+        Ok(_) => ServiceResponse::accepted(),
+        Err(e) => match e{
+            SerialPortError::NotWritable => ServiceResponse::internal_server_error(),
+            _ => ServiceResponse::not_found_empty()
+        }
+    }
+
+}
+
+async fn enumerate_serial_ports(_req: Request<hyper::body::Incoming>) -> HyperResult{
+    let bytes = match enumerate_available_ports(){
+        Ok(bytes) => bytes,
+        Err(e) => return match e{
+            SerialPortError::NotAvailable => ServiceResponse::not_found_empty(),
+            _ => ServiceResponse::internal_server_error()
+        }
+    };
+    let response = Response::builder()
+        .status(StatusCode::OK)
+        .header("Content-Type","application/json")
+        .body(Full::new(bytes.into()).map_err(|e| match e {}).boxed())
+        .unwrap();
+    Ok(response)
 }
 
 async fn try_save_data(req: Request<hyper::body::Incoming>) -> HyperResult{
